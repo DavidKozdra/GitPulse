@@ -1,0 +1,24 @@
+{
+  "name": "gitpulse",
+  "version": "1.0.0",
+  "description": "chrome extension to measure and alert about archived repos",
+  "keywords": [
+    "chrome",
+    "extention"
+  ],
+  "homepage": "https://github.com/DavidKozdra/GitPulse#readme",
+  "bugs": {
+    "url": "https://github.com/DavidKozdra/GitPulse/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavidKozdra/GitPulse.git"
+  },
+  "license": "ISC",
+  "author": "David Kozdra",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
