@@ -48,6 +48,7 @@ We’ve all been there: you open a promising new repository to explore, contribu
 * [ ] web searches or even all github urls displayed also checked remotly. 
 * [ ] Browser support beyond Chrome (Firefox, Edge).
 * [ ] Gitlab and npm and other repo systems maybe even docker ? 
+* [ ] user stars and watch list labled as archived and notfications 
 * [ ] Dark mode support for the banner and settings system.
 
 ## 🤝 Contributing
