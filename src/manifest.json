@@ -3,8 +3,15 @@
   "name": "GitPulse",
   "version": "1.0",
   "description": "chrome extension to measure and alert about archived repos",
-  "permissions": ["tabs"],
   "host_permissions": ["<all_urls>"],
+  "permissions": ["scripting"],
+ "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["main.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "background": {
     "service_worker": "background.js"
   },
