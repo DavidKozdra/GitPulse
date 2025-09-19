@@ -1,7 +1,8 @@
-// ---------- Load Configuration ----------
+// ---------- Configuration ----------
 const CONFIG_KEY = "repoCheckerConfig";
+const CACHE_KEY = "repoCache_v1";
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-// open PRs open issues etc
 const defaultConfig = {
   max_repo_update_time: 365,
   max_issues_update_time: 30,
@@ -9,7 +10,6 @@ const defaultConfig = {
   emoji_active: "✅",
   emoji_inactive: "❌"
 };
-
 
 function loadConfig() {
   try {
@@ -22,47 +22,34 @@ function loadConfig() {
 
 const config = loadConfig();
 
-const CACHE_KEY = "repoCache_v1";
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
+// ---------- Cache ----------
 let repoCache = {};
 try {
   const stored = localStorage.getItem(CACHE_KEY);
   if (stored) repoCache = JSON.parse(stored);
-} catch { }
+} catch {}
 
 function saveCache() {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(repoCache));
-  } catch { }
+  } catch {}
 }
 
-// ---------- Detect if a URL looks like a repo/package ----------
+// ---------- Repo URL Detection ----------
 function isRepoUrl(url) {
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
 
+    const reservedPaths = new Set([
+      "topics", "explore", "features", "issues", "pulls",
+      "marketplace", "orgs", "enterprise", "settings"
+    ]);
+
     switch (hostname) {
       case "github.com":
-      case "gitlab.com": {
-        // list of reserved paths we want to ignore
-        const reserved = new Set([
-          "topics",
-          "explore",
-          "features",
-          "issues",
-          "pulls",
-          "marketplace",
-          "orgs",
-          "enterprise",
-          "settings",
-        ]);
-
-        if (parts.length < 2) return false; // need at least owner/repo
-        if (reserved.has(parts[0])) return false; // skip reserved paths
-        return true;
-      }
+      case "gitlab.com":
+        return parts.length >= 2 && !reservedPaths.has(parts[0]);
       case "www.npmjs.com":
       case "npmjs.com":
         return parts[0] === "package" && parts.length >= 2;
@@ -82,12 +69,12 @@ function isRepoUrl(url) {
   }
 }
 
-// ---------- Check if repo/package updated recently ----------
+// ---------- Repo Activity Check ----------
 async function isRepoActive(url) {
   const cached = repoCache[url];
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.active;
 
-  try { 
+  try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
     let lastUpdate;
@@ -97,20 +84,18 @@ async function isRepoActive(url) {
         const [owner, repo] = parts;
         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
         if (!res.ok) throw new Error("GitHub API failed");
-        const data = await res.json();
-        lastUpdate = new Date(data.pushed_at);
+        lastUpdate = new Date((await res.json()).pushed_at);
         break;
       }
       case "gitlab.com": {
         const projectPath = encodeURIComponent(parts.slice(0, 2).join("/"));
         const res = await fetch(`https://gitlab.com/api/v4/projects/${projectPath}`);
         if (!res.ok) throw new Error("GitLab API failed");
-        const data = await res.json();
-        lastUpdate = new Date(data.last_activity_at);
+        lastUpdate = new Date((await res.json()).last_activity_at);
         break;
       }
-      case "www.npmjs.com":
-      case "npmjs.com": {
+      case "npmjs.com":
+      case "www.npmjs.com": {
         const pkgName = parts[1];
         const res = await fetch(`https://registry.npmjs.org/${pkgName}`);
         if (!res.ok) throw new Error("NPM API failed");
@@ -122,64 +107,34 @@ async function isRepoActive(url) {
         const [_, namespace, image] = parts;
         const res = await fetch(`https://hub.docker.com/v2/repositories/${namespace}/${image}`);
         if (!res.ok) throw new Error("Docker Hub API failed");
-        const data = await res.json();
-        lastUpdate = new Date(data.last_updated);
+        lastUpdate = new Date((await res.json()).last_updated);
         break;
       }
       case "pypi.org": {
         const pkgName = parts[1];
-        // doesnt seem to work 
-
         const res = await fetch(`https://pypi.org/pypi/${pkgName}/json`);
         if (!res.ok) throw new Error("PyPI API failed");
         const data = await res.json();
-
-        let lastUpdate = null;
-        for (const version of Object.keys(data.releases)) {
-          for (const file of data.releases[version]) {
-            const uploaded = new Date(file.upload_time_iso_8601);
-            if (!lastUpdate || uploaded > lastUpdate) {
-              lastUpdate = uploaded;
-            }
-          }
-        }
-
-        console.log("Last update:", lastUpdate?.toISOString());
-
-
+        lastUpdate = Object.values(data.releases).flat().reduce((latest, file) => {
+          const uploaded = new Date(file.upload_time_iso_8601);
+          return !latest || uploaded > latest ? uploaded : latest;
+        }, null);
         break;
       }
       case "crates.io": {
         const crateName = parts[1];
         const res = await fetch(`https://crates.io/api/v1/crates/${crateName}`);
         if (!res.ok) throw new Error("Crates.io API failed");
-        const data = await res.json();
-        lastUpdate = new Date(data.crate.updated_at);
+        lastUpdate = new Date((await res.json()).crate.updated_at);
         break;
       }
-
-
-      /*
-           case "packagist.org": {
-
-        // doesnt seem to work 
-        const [_, vendor, packageName] = parts;
-        const res = await fetch(`https://repo.packagist.org/p/${vendor}/${packageName}.json`);
-        if (!res.ok) throw new Error("Packagist API failed");
-        const data = await res.json();
-        const versions = Object.values(data.packages[`${vendor}/${packageName}`]);
-        lastUpdate = new Date(versions[0]?.time || Date.now());
-        break;
-      }
-      */
-
       default:
         return false;
     }
 
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - config.max_repo_update_time);
-    const isActive = lastUpdate >= cutoffDate;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - config.max_repo_update_time);
+    const isActive = lastUpdate >= cutoff;
 
     repoCache[url] = { active: isActive, timestamp: Date.now() };
     saveCache();
@@ -191,78 +146,69 @@ async function isRepoActive(url) {
   }
 }
 
-// ---------- Detect if current page is a repo ----------
-const currentUrl = window.location.href;
-var onRepoPage = isRepoUrl(currentUrl);
+// ---------- Banner for Repo Page ----------
+function createBanner(isActive) {
+  const banner = document.createElement("div");
+  banner.className = "my-banner";
+  banner.style.background = isActive ? "#1eff00" : "#ff3300";
+  banner.style.display = "flex";
+  banner.style.alignItems = "center";
+  banner.style.justifyContent = "space-between";
+  banner.style.padding = "0.5em 1em";
 
-if(currentUrl.includes( "github")){
-    const meta = document.querySelector(
-      'meta[name="octolytics-dimension-repository_nwo"]'
-    );
+  const link = document.createElement("a");
+  link.href = "#";
+  link.style.color = "inherit";
+  link.style.textDecoration = "none";
+  link.style.flex = "1";
+  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo !`;
+  link.onclick = e => {
+    e.preventDefault();
+    chrome.runtime.sendMessage({ action: "open_popup" });
+  };
 
-    if(!meta){
-      onRepoPage = false
-    }
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "✖";
+  closeBtn.onclick = () => banner.remove();
+
+  banner.appendChild(link);
+  banner.appendChild(closeBtn);
+  document.body.prepend(banner);
+
+  setTimeout(() => banner.classList.add("active"), 50);
 }
 
-if (onRepoPage) {
-  (async () => {
-
-
-    const active = await isRepoActive(currentUrl);
-
-    // create banner
-    const banner = document.createElement("div");
-    banner.className = "my-banner";
-    banner.style.background = active ? "#1eff00" : "#ff3300";
-
-    // clickable link span
-    const link = document.createElement("a");
-    link.href = "#";  // we’ll handle click manually
-    link.style.color = "inherit";
-    link.style.textDecoration = "none";
-    link.style.flex = "1";  // take remaining space
-    link.textContent = `${active ? config.emoji_active : config.emoji_inactive} Repo !`;
-
-    link.onclick = (e) => {
-      e.preventDefault();
-      // Open the extension popup
-      chrome.runtime.sendMessage({ action: "open_popup" });
-    };
-
-    // close button
-    const btn = document.createElement("button");
-    btn.textContent = "✖";
-    btn.onclick = () => banner.remove();
-
-    banner.appendChild(link);
-    banner.appendChild(btn);
-    document.body.prepend(banner);
-
-    // animate in
-    setTimeout(() => banner.classList.add("active"), 50);
-
-
-  })();
-}
-
-// ---------- Mark links if NOT on a repo page ----------
-if (!onRepoPage) {
-  async function markRepoLinks() {
-    const links = document.querySelectorAll("a");
-    for (const link of links) {
-      if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
-        link.dataset.repoChecked = "true";
-        const active = await isRepoActive(link.href);
-        const mark = document.createElement("span");
-        mark.textContent = active ? `${config.emoji_active} ` : `${config.emoji_inactive} `;
-        mark.style.color = active ? "green" : "red";
-        link.prepend(mark);
-      }
+// ---------- Mark Repo Links ----------
+async function markRepoLinks() {
+  const links = document.querySelectorAll("a");
+  for (const link of links) {
+    if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
+      link.dataset.repoChecked = "true";
+      const active = await isRepoActive(link.href);
+      const mark = document.createElement("span");
+      mark.textContent = active ? `${config.emoji_active} ` : `${config.emoji_inactive} `;
+      mark.style.color = active ? "green" : "red";
+      link.prepend(mark);
     }
   }
-
-  markRepoLinks();
-  const observer = new MutationObserver(markRepoLinks);
-  observer.observe(document.body, { childList: true, subtree: true });
 }
+
+// ---------- Main Execution ----------
+(async () => {
+  const currentUrl = window.location.href;
+  let onRepoPage = isRepoUrl(currentUrl);
+
+  if (currentUrl.includes("github")) {
+    const meta = document.querySelector('meta[name="octolytics-dimension-repository_nwo"]');
+    if (!meta) onRepoPage = false;
+  }
+
+  if (onRepoPage) {
+    const active = await isRepoActive(currentUrl);
+    createBanner(active);
+  } else {
+    markRepoLinks();
+    const observer = new MutationObserver(markRepoLinks);
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+})();
