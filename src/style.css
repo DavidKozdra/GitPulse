@@ -1,79 +1,43 @@
-root{
-        text-align: center;
-}
-
 .my-banner {
-  position: fixed;
-  top: -80px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 90vw; /* fits on small screens */
-  padding: 16px 30px;
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 15px;
-  border-radius: 16px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-  backdrop-filter: blur(8px);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  justify-content: space-between;
+
+  max-width: 400px;          /* keeps banner compact */
+  margin: 12px auto;          /* center horizontally */
+  padding: 10px 16px;
+  
   font-size: 16px;
-  text-align: center; /* for multiline text */
-  z-index: 9999;
+  font-weight: 600;
+  color: #fff;
+  
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+  transform: translateY(-20px);  /* slide down effect */
+  z-index: 9999;                 /* overlay on top of page */
+  position: relative;             /* optional if you want to position absolutely */
 }
 
-
-/* Active state */
 .my-banner.active {
-  top: 20px;
+  opacity: 1;
+  transform: translateY(0);
 }
 
-/* Inactive/alert state */
-.my-banner.inactive {
-  background: linear-gradient(90deg, #ff5722, #ff3300);
-}
-
-/* Default/active gradient */
-.my-banner:not(.inactive) {
-  background: linear-gradient(90deg, #4caf50, #1eff00);
-}
-
-/* Button styling */
 .my-banner button {
-  background: rgba(255, 255, 255, 0);
+  background: rgba(255, 255, 255, 0.2);
   border: none;
-  border-radius: 50%;
-  cursor: pointer;
+  color: #fff;
+  font-size: 16px;
   font-weight: bold;
-  color: black;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  transition: background 0.2s ease;
 }
 
 .my-banner button:hover {
-  background: rgba(255, 255, 255, 0.5);
-  transform: scale(1.1);
-}
-
-/* Animation keyframes */
-@keyframes slideDown {
-  0% {
-    top: -80px;
-    opacity: 0;
-  }
-  60% {
-    top: 25px; /* overshoot for bounce effect */
-    opacity: 1;
-  }
-  80% {
-    top: 18px; /* settle back */
-  }
-  100% {
-    top: 20px;
-    opacity: 1;
-  }
+  background: rgba(255, 255, 255, 0.4);
 }

@@ -22,17 +22,6 @@ function loadConfig() {
 
 const config = loadConfig();
 
-// ---------- Hosts and cache ----------
-const repoHosts = [
-  "github.com",
-  "gitlab.com",
-  "npmjs.com",
-  "hub.docker.com",
-  "pypi.org",
-  "crates.io",
-  "packagist.org"
-];
-
 const CACHE_KEY = "repoCache_v1";
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -40,12 +29,12 @@ let repoCache = {};
 try {
   const stored = localStorage.getItem(CACHE_KEY);
   if (stored) repoCache = JSON.parse(stored);
-} catch {}
+} catch { }
 
 function saveCache() {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(repoCache));
-  } catch {}
+  } catch { }
 }
 
 // ---------- Detect if a URL looks like a repo/package ----------
@@ -56,8 +45,24 @@ function isRepoUrl(url) {
 
     switch (hostname) {
       case "github.com":
-      case "gitlab.com":
-        return parts.length >= 2;
+      case "gitlab.com": {
+        // list of reserved paths we want to ignore
+        const reserved = new Set([
+          "topics",
+          "explore",
+          "features",
+          "issues",
+          "pulls",
+          "marketplace",
+          "orgs",
+          "enterprise",
+          "settings",
+        ]);
+
+        if (parts.length < 2) return false; // need at least owner/repo
+        if (reserved.has(parts[0])) return false; // skip reserved paths
+        return true;
+      }
       case "www.npmjs.com":
       case "npmjs.com":
         return parts[0] === "package" && parts.length >= 2;
@@ -82,7 +87,7 @@ async function isRepoActive(url) {
   const cached = repoCache[url];
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.active;
 
-  try {
+  try { 
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
     let lastUpdate;
@@ -124,10 +129,24 @@ async function isRepoActive(url) {
       case "pypi.org": {
         const pkgName = parts[1];
         // doesnt seem to work 
+
         const res = await fetch(`https://pypi.org/pypi/${pkgName}/json`);
         if (!res.ok) throw new Error("PyPI API failed");
         const data = await res.json();
-        lastUpdate = new Date(data.info?.release_url || Date.now());
+
+        let lastUpdate = null;
+        for (const version of Object.keys(data.releases)) {
+          for (const file of data.releases[version]) {
+            const uploaded = new Date(file.upload_time_iso_8601);
+            if (!lastUpdate || uploaded > lastUpdate) {
+              lastUpdate = uploaded;
+            }
+          }
+        }
+
+        console.log("Last update:", lastUpdate?.toISOString());
+
+
         break;
       }
       case "crates.io": {
@@ -138,7 +157,10 @@ async function isRepoActive(url) {
         lastUpdate = new Date(data.crate.updated_at);
         break;
       }
-      case "packagist.org": {
+
+
+      /*
+           case "packagist.org": {
 
         // doesnt seem to work 
         const [_, vendor, packageName] = parts;
@@ -149,6 +171,8 @@ async function isRepoActive(url) {
         lastUpdate = new Date(versions[0]?.time || Date.now());
         break;
       }
+      */
+
       default:
         return false;
     }
@@ -169,23 +193,56 @@ async function isRepoActive(url) {
 
 // ---------- Detect if current page is a repo ----------
 const currentUrl = window.location.href;
-const onRepoPage = isRepoUrl(currentUrl);
+var onRepoPage = isRepoUrl(currentUrl);
+
+if(currentUrl.includes( "github")){
+    const meta = document.querySelector(
+      'meta[name="octolytics-dimension-repository_nwo"]'
+    );
+
+    if(!meta){
+      onRepoPage = false
+    }
+}
 
 if (onRepoPage) {
   (async () => {
+
+
     const active = await isRepoActive(currentUrl);
+
+    // create banner
     const banner = document.createElement("div");
     banner.className = "my-banner";
-    banner.textContent = `${active ? config.emoji_active : config.emoji_inactive} Repo !`;
-    banner.style.background = active ? "#1eff00ff" : "#ff3300ff";
+    banner.style.background = active ? "#1eff00" : "#ff3300";
 
+    // clickable link span
+    const link = document.createElement("a");
+    link.href = "#";  // we’ll handle click manually
+    link.style.color = "inherit";
+    link.style.textDecoration = "none";
+    link.style.flex = "1";  // take remaining space
+    link.textContent = `${active ? config.emoji_active : config.emoji_inactive} Repo !`;
+
+    link.onclick = (e) => {
+      e.preventDefault();
+      // Open the extension popup
+      chrome.runtime.sendMessage({ action: "open_popup" });
+    };
+
+    // close button
     const btn = document.createElement("button");
     btn.textContent = "✖";
     btn.onclick = () => banner.remove();
+
+    banner.appendChild(link);
     banner.appendChild(btn);
     document.body.prepend(banner);
 
+    // animate in
     setTimeout(() => banner.classList.add("active"), 50);
+
+
   })();
 }
 
