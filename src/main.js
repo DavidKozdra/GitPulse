@@ -1,7 +1,5 @@
 // ---------- Configuration ----------
 const CONFIG_KEY = "repoCheckerConfig";
-const CACHE_KEY = "repoCache_v1";
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 const defaultConfig = {
   max_repo_update_time: 365,
@@ -21,19 +19,6 @@ function loadConfig() {
 }
 
 const config = loadConfig();
-
-// ---------- Cache ----------
-let repoCache = {};
-try {
-  const stored = localStorage.getItem(CACHE_KEY);
-  if (stored) repoCache = JSON.parse(stored);
-} catch {}
-
-function saveCache() {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(repoCache));
-  } catch {}
-}
 
 // ---------- Repo URL Detection ----------
 function isRepoUrl(url) {
@@ -71,9 +56,7 @@ function isRepoUrl(url) {
 
 // ---------- Repo Activity Check ----------
 async function isRepoActive(url) {
-  const cached = repoCache[url];
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.active;
-
+  
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
@@ -129,19 +112,16 @@ async function isRepoActive(url) {
         break;
       }
       default:
-        return false;
+        {
+          return false;
+        }
     }
 
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - config.max_repo_update_time);
     const isActive = lastUpdate >= cutoff;
-
-    repoCache[url] = { active: isActive, timestamp: Date.now() };
-    saveCache();
     return isActive;
   } catch {
-    repoCache[url] = { active: false, timestamp: Date.now() };
-    saveCache();
     return false;
   }
 }
