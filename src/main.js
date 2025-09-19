@@ -1,5 +1,7 @@
 // ---------- Load Configuration ----------
 const CONFIG_KEY = "repoCheckerConfig";
+
+// open PRs open issues etc
 const defaultConfig = {
   max_repo_update_time: 365,
   max_issues_update_time: 30,
@@ -7,6 +9,7 @@ const defaultConfig = {
   emoji_active: "✅",
   emoji_inactive: "❌"
 };
+
 
 function loadConfig() {
   try {
@@ -120,6 +123,7 @@ async function isRepoActive(url) {
       }
       case "pypi.org": {
         const pkgName = parts[1];
+        // doesnt seem to work 
         const res = await fetch(`https://pypi.org/pypi/${pkgName}/json`);
         if (!res.ok) throw new Error("PyPI API failed");
         const data = await res.json();
@@ -135,6 +139,8 @@ async function isRepoActive(url) {
         break;
       }
       case "packagist.org": {
+
+        // doesnt seem to work 
         const [_, vendor, packageName] = parts;
         const res = await fetch(`https://repo.packagist.org/p/${vendor}/${packageName}.json`);
         if (!res.ok) throw new Error("Packagist API failed");
