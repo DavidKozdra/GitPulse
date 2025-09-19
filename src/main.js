@@ -27,9 +27,19 @@ function isRepoUrl(url) {
     const parts = pathname.split("/").filter(Boolean);
 
     const reservedPaths = new Set([
-      "topics", "explore", "features", "issues", "pulls", "sponsors",
-      "marketplace", "orgs", "enterprise", "settings"
+      "topics", "explore", "features", "issues", "pulls",
+      "marketplace", "orgs", "enterprise", "settings",
+      "sponsors", "login", "logout", "signup", "register",
+      "notifications", "dashboard", "admin", "administrator",
+      "help", "support", "docs", "api", "about", "contact",
+      "security", "apps", "blog", "events", "community",
+      "organizations", "repositories", "search", "trending",
+      "gist", "gist.github", "releases", "archive", "new",
+      "watching", "stars", "forks", "followers", "following",
+      "milestones", "projects", "teams", "labels", "topics",
+      "codespaces", "actions", "discussions", "pages"
     ]);
+
 
     switch (hostname) {
       case "github.com":
