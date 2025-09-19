@@ -27,7 +27,7 @@ function isRepoUrl(url) {
     const parts = pathname.split("/").filter(Boolean);
 
     const reservedPaths = new Set([
-      "topics", "explore", "features", "issues", "pulls",
+      "topics", "explore", "features", "issues", "pulls", "sponsors",
       "marketplace", "orgs", "enterprise", "settings"
     ]);
 
