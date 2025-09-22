@@ -42,13 +42,12 @@ We’ve all been there: you open a promising new repository to explore, contribu
 
 ## 📌 Roadmap
 
-* [ ] Add repo activity scoring system (commits, issues, PRs). IE go to repo page and log if active or archived
-* [ ] Banner to display status on the page. 
+* [x] Add repo activity scoring system (commits, issues, PRs). IE go to repo page and log if active or archived
+* [x] Banner to display status on the page. 
 * [ ] Configurable rule system. settings pop up and editiable rules. 
-* [ ] web searches or even all github urls displayed also checked remotly. 
+* [x] web searches or even all github urls displayed also checked remotly. 
 * [ ] Browser support beyond Chrome (Firefox, Edge).
-* [ ] Gitlab and npm and other repo systems maybe even docker ? 
-* [ ] user stars and watch list labled as archived and notfications 
+* [x] Gitlab and npm and other repo systems maybe even docker ? 
 * [ ] Dark mode support for the banner and settings system.
 
 ## 🤝 Contributing
