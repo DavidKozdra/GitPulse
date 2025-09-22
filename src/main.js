@@ -171,7 +171,7 @@ function createBanner(isActive) {
     transition: "background-color 0.3s ease, transform 0.2s ease",
   });
 
-  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo!`;
+  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo is ${isActive ? "Active !" : "InActive"}`;
   link.onclick = e => {
     e.preventDefault();
     chrome.runtime.sendMessage({ action: "open_popup" });
