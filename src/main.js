@@ -140,25 +140,68 @@ async function isRepoActive(url) {
 function createBanner(isActive) {
   const banner = document.createElement("div");
   banner.className = "my-banner";
-  banner.style.background = isActive ? "#1eff00" : "#ff3300";
-  banner.style.display = "flex";
-  banner.style.alignItems = "center";
-  banner.style.justifyContent = "space-between";
-  banner.style.padding = "0.5em 1em";
+
+  Object.assign(banner.style, {
+    background: isActive ? "#e6ffe6" : "#ffe6e6",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "0.75em 1.25em",
+    borderRadius: "12px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+    fontFamily: "system-ui, sans-serif",
+    margin: ".5em 0",
+    position: "relative",
+    transition: "all 0.3s ease",
+  });
 
   const link = document.createElement("a");
   link.href = "#";
-  link.style.color = "inherit";
-  link.style.textDecoration = "none";
-  link.style.flex = "1";
-  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo !`;
+
+  Object.assign(link.style, {
+    color: isActive ? "white" : "white",
+    textDecoration: "none",
+    flex: "1",
+    fontWeight: "600",
+    fontSize: "1rem",
+    padding: "0.5em 1em",
+    backgroundColor: isActive ? "#1a8917" : "#d32f2f",
+    borderRadius: "9999px", // pill style
+    textAlign: "center",
+    transition: "background-color 0.3s ease, transform 0.2s ease",
+  });
+
+  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo!`;
   link.onclick = e => {
     e.preventDefault();
     chrome.runtime.sendMessage({ action: "open_popup" });
   };
 
+  // Hover effect
+  link.addEventListener("mouseenter", () => {
+    link.style.transform = "scale(1.05)";
+    link.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
+  });
+  link.addEventListener("mouseleave", () => {
+    link.style.transform = "scale(1)";
+    link.style.backgroundColor = isActive ? "#1a8917" : "#d32f2f";
+  });
+
   const closeBtn = document.createElement("button");
   closeBtn.textContent = "✖";
+
+  Object.assign(closeBtn.style, {
+    background: "transparent",
+    border: "none",
+    color: "#444",
+    fontSize: "1.25rem",
+    cursor: "pointer",
+    marginLeft: "1em",
+    transition: "color 0.2s ease",
+  });
+
+  closeBtn.onmouseenter = () => (closeBtn.style.color = "#000");
+  closeBtn.onmouseleave = () => (closeBtn.style.color = "#444");
   closeBtn.onclick = () => banner.remove();
 
   banner.appendChild(link);

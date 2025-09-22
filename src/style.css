@@ -38,6 +38,11 @@
   transition: background 0.2s ease;
 }
 
+
+.my-banner.active a {
+  background-color: white;
+  color:black;
+}
 .my-banner button:hover {
   background: rgba(255, 255, 255, 0.4);
 }
