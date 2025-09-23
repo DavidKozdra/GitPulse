@@ -179,7 +179,7 @@ function createBanner(isActive) {
 
   // Hover effect
   link.addEventListener("mouseenter", () => {
-    link.style.transform = "scale(1.05)";
+    link.style.transform = "scale(1.0)";
     link.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
   });
   link.addEventListener("mouseleave", () => {
