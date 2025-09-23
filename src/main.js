@@ -63,10 +63,35 @@ function isRepoUrl(url) {
     return false;
   }
 }
+// ---------- Cache Utils ----------
+async function getCacheFromBackground(key) {
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage({ action: "getCache", key }, (response) => {
+      resolve(response);
+    });
+  });
+}
+
+async function setCacheInBackground(key, value) {
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage({ action: "setCache", key, value }, (response) => {
+      resolve(response);
+    });
+  });
+}
 
 // ---------- Repo Activity Check ----------
 async function isRepoActive(url) {
-  
+  const key = new URL(url).hostname + new URL(url).pathname;
+
+  // --- 0. Check background cache first ---
+  const cached = await getCacheFromBackground(key);
+  if (cached.isActive !== null) {
+    console.log(`[Cache] HIT for ${key}`);
+    return cached.isActive;
+  }
+
+  // --- 1. Original repo activity logic ---
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
@@ -122,19 +147,24 @@ async function isRepoActive(url) {
         break;
       }
       default:
-        {
-          return false;
-        }
+        return false;
     }
 
+    // --- 2. Determine activity ---
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - config.max_repo_update_time);
     const isActive = lastUpdate >= cutoff;
+
+    // --- 3. Save to background cache ---
+    await setCacheInBackground(key, { isActive });
+
     return isActive;
-  } catch {
+  } catch (e) {
+    console.warn("[Repo check failed]", url, e);
     return false;
   }
 }
+
 
 // ---------- Banner for Repo Page ----------
 function createBanner(isActive) {

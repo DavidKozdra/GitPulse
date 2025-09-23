@@ -4,7 +4,7 @@
   "version": "1.0",
   "description": "chrome extension to measure and alert about archived repos",
   "host_permissions": ["<all_urls>"],
-  "permissions": ["scripting"],
+  "permissions": ["scripting", "storage"],
  "content_scripts": [
     {
       "matches": ["<all_urls>"],
