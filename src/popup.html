@@ -7,7 +7,7 @@
 </head>
 <body>
   <div class="card">
-    <image src="./icon.png"> </image>
+    <img src="./icon.png" alt="icon" style="width:48px; height:48px;">
     <h2>Repo Checker Config</h2>
     
     <div class="form-group">
@@ -35,9 +35,16 @@
       <input type="text" id="emoji_inactive" maxlength="2"/>
     </div>
 
+    <div class="form-group">
+      <label for="pat">GitHub PAT</label>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input type="password" id="pat" maxlength="100" style="flex:1;" />
+        <button type="button" id="togglePat" style="padding: 6px 10px; cursor: pointer;">👁️</button>
+      </div>
+    </div>
+
     <button id="saveBtn">Save</button>
   </div>
-
 
   <script src="popup.js"></script>
 </body>

@@ -1,6 +1,5 @@
 // ---------- Configuration ----------
 const CONFIG_KEY = "repoCheckerConfig";
-
 const defaultConfig = {
   max_repo_update_time: 365,
   max_issues_update_time: 30,
@@ -8,6 +7,8 @@ const defaultConfig = {
   emoji_active: "✅",
   emoji_inactive: "❌"
 };
+
+var requests = 0;
 
 function loadConfig() {
   try {
@@ -63,6 +64,16 @@ function isRepoUrl(url) {
     return false;
   }
 }
+
+async function getPAT() {
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage({ action: "get_pat" }, (response) => {
+      resolve(response.pat); // safe access
+    });
+  });
+}
+
+
 // ---------- Cache Utils ----------
 async function getCacheFromBackground(key) {
   return new Promise(resolve => {
@@ -91,6 +102,8 @@ async function isRepoActive(url) {
     return cached.isActive;
   }
 
+
+
   // --- 1. Original repo activity logic ---
   try {
     const { hostname, pathname } = new URL(url);
@@ -99,12 +112,27 @@ async function isRepoActive(url) {
 
     switch (hostname) {
       case "github.com": {
+        //if (requests >= 49) return false;
+
         const [owner, repo] = parts;
-        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-        if (!res.ok) throw new Error("GitHub API failed");
-        lastUpdate = new Date((await res.json()).pushed_at);
+        const githubPAT = await getPAT();
+        const headers = {
+          Accept: "application/vnd.github.v3+json",
+          ...(githubPAT ? { Authorization: `token ${githubPAT}` } : {})
+        };
+
+        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+
+        if (!res.ok) {
+          console.error(`[Repo check failed] https://github.com/${owner}/${repo} Status: ${res.status}`);
+          throw new Error("GitHub API failed");
+        }
+
+        const data = await res.json();
+        lastUpdate = new Date(data.pushed_at);
         break;
       }
+
       case "gitlab.com": {
         const projectPath = encodeURIComponent(parts.slice(0, 2).join("/"));
         const res = await fetch(`https://gitlab.com/api/v4/projects/${projectPath}`);
@@ -275,3 +303,8 @@ async function markRepoLinks() {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 })();
+
+
+window.setInterval(() => {
+  requests = 0
+}, 36000)
