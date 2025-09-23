@@ -1,24 +1,152 @@
+/* -----------------------------------
+   THEME VARIABLES
+----------------------------------- */
+:root {
+  --banner-bg: #222;
+  --banner-text: #fff;
+  --banner-button-bg: rgba(255, 255, 255, 0.2);
+  --banner-button-hover: rgba(255, 255, 255, 0.4);
+
+  --body-bg: #121212;
+  --card-bg: #1e1e1e;
+  --card-text: #e0e0e0;
+  --label-text: #bbb;
+  --input-bg: #2c2c2c;
+  --input-border: #444;
+  --input-focus-border: #bb86fc;
+  --input-focus-shadow: rgba(187, 134, 252, 0.3);
+  --button-bg: #bb86fc;
+  --button-hover-bg: #985eff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --banner-bg: #f5f5f5;
+    --banner-text: #111;
+    --banner-button-bg: rgba(0, 0, 0, 0.1);
+    --banner-button-hover: rgba(0, 0, 0, 0.2);
+
+    --body-bg: #f5f5f5;
+    --card-bg: #fff;
+    --card-text: #333;
+    --label-text: #555;
+    --input-bg: #fafafa;
+    --input-border: #ccc;
+    --input-focus-border: #6200ee;
+    --input-focus-shadow: rgba(98, 0, 238, 0.2);
+    --button-bg: #6200ee;
+    --button-hover-bg: #3700b3;
+  }
+}
+
+/* -----------------------------------
+   GLOBAL STYLES
+----------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background: var(--body-bg);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  min-width: 100vw;
+  padding: 40px 20px;
+  color: var(--card-text);
+}
+
+/* -----------------------------------
+   CARD STYLES
+----------------------------------- */
+.card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  width: 480px;
+  padding: 30px;
+}
+
+h2 {
+  margin-top: 0;
+  font-weight: 500;
+  color: var(--card-text);
+  text-align: center;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 16px;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: var(--label-text);
+  margin-bottom: 6px;
+}
+
+.form-group input {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  outline: none;
+  font-size: 14px;
+  background: var(--input-bg);
+  color: var(--card-text);
+  transition: 0.3s;
+}
+
+.form-group input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 2px 8px var(--input-focus-shadow);
+  background: var(--card-bg);
+}
+
+/* Button */
+button {
+  margin-top: 24px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--button-bg);
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+button:hover { background: var(--button-hover-bg); }
+
+/* -----------------------------------
+   BANNER STYLES
+----------------------------------- */
 .my-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
 
-  max-width: 400px;          /* keeps banner compact */
-  margin: 12px auto;          /* center horizontally */
+  max-width: 400px;
+  margin: 12px auto;
   padding: 10px 16px;
-  
+
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
-  
+  color: var(--banner-text);
+  background-color: var(--banner-bg);
+
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 
   transition: transform 0.3s ease, opacity 0.3s ease;
   opacity: 0;
-  transform: translateY(-20px);  /* slide down effect */
-  z-index: 9999;                 /* overlay on top of page */
-  position: relative;             /* optional if you want to position absolutely */
+  transform: translateY(-20px);
+  z-index: 9999;
+  position: relative;
 }
 
 .my-banner.active {
@@ -27,9 +155,9 @@
 }
 
 .my-banner button {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--banner-button-bg);
   border: none;
-  color: #fff;
+  color: var(--banner-text);
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
@@ -38,11 +166,16 @@
   transition: background 0.2s ease;
 }
 
+.my-banner button:hover {
+  background: var(--banner-button-hover);
+}
 
 .my-banner.active a {
-  background-color: white;
-  color:black;
+  background-color: var(--banner-text);
+  color: var(--banner-bg);
 }
-.my-banner button:hover {
-  background: rgba(255, 255, 255, 0.4);
+
+/* Responsive */
+@media (max-width: 500px) {
+  .card { width: 100%; padding: 20px; }
 }
