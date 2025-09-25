@@ -24,7 +24,11 @@ We’ve all been there: you open a promising new repository to explore, contribu
 
 ![GitPulse Icon](./src/icon.png)
 
-*(Screenshot of banner coming soon)*
+<img width="2473" height="1394" alt="image" src="https://github.com/user-attachments/assets/1c9f7526-70db-46fa-9d4e-8b5da46d1996" />
+
+<img width="1194" height="1423" alt="image" src="https://github.com/user-attachments/assets/5907153e-cdd2-429b-8e0d-b29e246f3bd8" />
+
+<img width="2467" height="906" alt="image" src="https://github.com/user-attachments/assets/b224269f-3f94-4b53-9d6c-4e6c16bcbd72" />
 
 ## 🛠️ Installation
 
