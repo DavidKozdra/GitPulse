@@ -1,6 +1,6 @@
 # GitPulse
-chrome extension to measure and alert about archived repos
-Here’s a polished draft of your **README.md** for *GitPulse*:
+chrome extension to measure and alert about archived repos 
+
 
 
 ## 🚀 Overview
@@ -60,4 +60,4 @@ Contributions are welcome! Please open an issue or submit a pull request if you�
 
 ## 📜 License
 
-[MIT](./LICENSE)
+Free for all to use 
