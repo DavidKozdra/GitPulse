@@ -78,7 +78,10 @@ async function isRepoActive(url) {
   const key = new URL(url).hostname + new URL(url).pathname;
 
   const cached = await getCacheFromBackground(key);
-  if (cached?.isActive !== undefined) {
+
+  console.log(cached)
+
+  if (cached?.isActive != undefined || !cached || cached.isActive != null) {
     console.log(`[Cache hit] ${url} isActive=${cached.isActive}`);
     return cached.isActive;
   }else {
