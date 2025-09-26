@@ -48,6 +48,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async
   }
 
+  if (message.action === "clearCache") {
+    // If message.key is provided, clear that single key
+    if (message.key) {
+      const key = CACHE_PREFIX + message.key;
+      chrome.storage.local.remove([key], () => {
+        console.log(`[Cache] Cleared ${key}`);
+        sendResponse({ success: true });
+      });
+    } else {
+      // Clear all keys with the CACHE_PREFIX
+      chrome.storage.local.get(null, (items) => {
+        const keysToRemove = Object.keys(items).filter(k => k.startsWith(CACHE_PREFIX));
+        if (keysToRemove.length) {
+          chrome.storage.local.remove(keysToRemove, () => {
+            console.log(`[Cache] Cleared all ${keysToRemove.length} entries`);
+            sendResponse({ success: true });
+          });
+        } else {
+          sendResponse({ success: true });
+        }
+      });
+    }
+    return true; // async
+  }
+
   if (message.action === "get_pat") {
     chrome.storage.local.get(["githubPAT"], ({ githubPAT }) => {
       sendResponse({ pat: githubPAT });

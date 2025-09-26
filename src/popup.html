@@ -10,39 +10,17 @@
     <img src="./icon.png" alt="icon" style="width:48px; height:48px;">
     <h2>Repo Checker Config</h2>
     
-    <div class="form-group">
-      <label for="max_repo_update_time">Max Repo Update Time (days)</label>
-      <input type="number" id="max_repo_update_time" />
-    </div>
+    <div class="forms-container"> 
 
-    <div class="form-group">
-      <label for="max_issues_update_time">Max Issues Update Time (days)</label>
-      <input type="number" id="max_issues_update_time" />
     </div>
-
-    <div class="form-group">
-      <label for="max_count_unmerged_prs">Max Count Unmerged PRs</label>
-      <input type="number" id="max_count_unmerged_prs" />
-    </div>
-
-    <div class="form-group">
-      <label for="emoji_active">Active Emoji</label>
-      <input type="text" id="emoji_active" maxlength="2"/>
-    </div>
-
-    <div class="form-group">
-      <label for="emoji_inactive">Inactive Emoji</label>
-      <input type="text" id="emoji_inactive" maxlength="2"/>
-    </div>
-
-    <div class="form-group">
+      <div class="form-group">
       <label for="pat">GitHub PAT</label>
       <div style="display: flex; gap: 8px; align-items: center;">
         <input type="password" id="pat" maxlength="100" style="flex:1;" />
         <button type="button" id="togglePat" style="padding: 6px 10px; cursor: pointer;">👁️</button>
       </div>
     </div>
-
+    
     <button id="saveBtn">Save</button>
   </div>
 

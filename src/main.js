@@ -1,13 +1,11 @@
 var config;
-
-
 var requests = 0;
-// ---------- Repo URL Detection ----------
+
+// ---------- Helpers ----------
 function isRepoUrl(url) {
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
-
     const reservedPaths = new Set([
       "topics", "explore", "features", "issues", "pulls",
       "marketplace", "orgs", "enterprise", "settings",
@@ -21,7 +19,6 @@ function isRepoUrl(url) {
       "milestones", "projects", "teams", "labels", "topics",
       "codespaces", "actions", "discussions", "pages"
     ]);
-
 
     switch (hostname) {
       case "github.com":
@@ -49,133 +46,148 @@ function isRepoUrl(url) {
 async function getPAT() {
   return new Promise(resolve => {
     chrome.runtime.sendMessage({ action: "get_pat" }, (response) => {
-      resolve(response.pat); // safe access
+      resolve(response?.pat || "");
     });
   });
 }
 
-
-// ---------- Cache Utils ----------
 async function getCacheFromBackground(key) {
   return new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "getCache", key }, (response) => {
-      resolve(response);
-    });
+    chrome.runtime.sendMessage({ action: "getCache", key }, (response) => resolve(response));
   });
 }
 
 async function setCacheInBackground(key, value) {
   return new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "setCache", key, value }, (response) => {
-      resolve(response);
-    });
+    chrome.runtime.sendMessage({ action: "setCache", key, value }, (response) => resolve(response));
   });
+}
+
+function getActiveConfigMetrics() {
+  return Object.entries(config)
+    .filter(([key, field]) => field.active && field.value !== undefined)
+    .reduce((acc, [key, field]) => {
+      acc[key] = field.value;
+      return acc;
+    }, {});
 }
 
 // ---------- Repo Activity Check ----------
 async function isRepoActive(url) {
+  const activeMetrics = getActiveConfigMetrics();
   const key = new URL(url).hostname + new URL(url).pathname;
 
-  // --- 0. Check background cache first ---
   const cached = await getCacheFromBackground(key);
-  if (cached.isActive !== null) {
-    console.log(`[Cache] HIT for ${key}`);
+  if (cached?.isActive !== undefined) {
+    console.log(`[Cache hit] ${url} isActive=${cached.isActive}`);
     return cached.isActive;
+  }else {
+    console.log("Cache miss")
   }
 
-
-
-  // --- 1. Original repo activity logic ---
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);
-    let lastUpdate;
+    let isActive = true;
 
-    switch (hostname) {
-      case "github.com": {
-        //if (requests >= 49) return false;
+    if (hostname === "github.com") {
+      const [owner, repo] = parts;
+      const githubPAT = await getPAT();
+      const headers = {
+        Accept: "application/vnd.github.v3+json",
+        ...(githubPAT ? { Authorization: `token ${githubPAT}` } : {})
+      };
 
-        const [owner, repo] = parts;
-        const githubPAT = await getPAT();
-        const headers = {
-          Accept: "application/vnd.github.v3+json",
-          ...(githubPAT ? { Authorization: `token ${githubPAT}` } : {})
-        };
+      // Repo info
+      const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      if (!repoRes.ok) throw new Error(`GitHub API failed: ${repoRes.status}`);
+      const repoData = await repoRes.json();
+      console.log(`[Repo fetched] ${url}, last push: ${repoData.pushed_at}`);
 
-        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      // Open PRs
+      const prRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=1`, { headers });
+      const openPRs = prRes.ok ? await prRes.json() : [];
+      console.log(`[Open PRs] ${openPRs.length} open`);
 
-        if (!res.ok) {
-          console.error(`[Repo check failed] https://github.com/${owner}/${repo} Status: ${res.status}`);
-          throw new Error("GitHub API failed");
+      // Open Issues
+      const issuesRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=1`, { headers });
+      const openIssues = issuesRes.ok ? await issuesRes.json() : [];
+      console.log(`[Open Issues] ${openIssues.length} open`);
+
+      // Last release
+      const releasesRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/releases?per_page=1`, { headers });
+      const releases = releasesRes.ok ? await releasesRes.json() : [];
+      if (releases.length) console.log(`[Last Release] ${releases[0].published_at}`);
+
+      const now = new Date();
+
+      // Check max_repo_update_time
+      if (activeMetrics.max_repo_update_time !== undefined) {
+        const lastPush = new Date(repoData.pushed_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - activeMetrics.max_repo_update_time);
+        if (lastPush < cutoff) {
+          console.log(`[Inactive] Last push too old: ${lastPush}`);
+          isActive = false;
         }
-
-        const data = await res.json();
-        lastUpdate = new Date(data.pushed_at);
-        break;
       }
 
-      case "gitlab.com": {
-        const projectPath = encodeURIComponent(parts.slice(0, 2).join("/"));
-        const res = await fetch(`https://gitlab.com/api/v4/projects/${projectPath}`);
-        if (!res.ok) throw new Error("GitLab API failed");
-        lastUpdate = new Date((await res.json()).last_activity_at);
-        break;
+      // Check max_issues_update_time
+      if (activeMetrics.max_issues_update_time !== undefined && openIssues.length) {
+        const lastIssue = new Date(openIssues[0].updated_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - activeMetrics.max_issues_update_time);
+        if (lastIssue < cutoff) {
+          console.log(`[Inactive] Last issue updated too long ago: ${lastIssue}`);
+          isActive = false;
+        }
       }
-      case "npmjs.com":
-      case "www.npmjs.com": {
-        const pkgName = parts[1];
-        const res = await fetch(`https://registry.npmjs.org/${pkgName}`);
-        if (!res.ok) throw new Error("NPM API failed");
-        const data = await res.json();
-        lastUpdate = new Date(data.time?.modified || data.time?.created);
-        break;
+
+      // Check max_count_unmerged_Prs
+      if (activeMetrics.max_count_unmerged_Prs !== undefined) {
+        if (openPRs.length > activeMetrics.max_count_unmerged_Prs) {
+          console.log(`[Inactive] Too many unmerged PRs: ${openPRs.length}`);
+          isActive = false;
+        }
       }
-      case "hub.docker.com": {
-        const [_, namespace, image] = parts;
-        const res = await fetch(`https://hub.docker.com/v2/repositories/${namespace}/${image}`);
-        if (!res.ok) throw new Error("Docker Hub API failed");
-        lastUpdate = new Date((await res.json()).last_updated);
-        break;
+
+      // Check max_days_since_last_pr
+      if (activeMetrics.max_days_since_last_pr !== undefined && openPRs.length) {
+        const lastPR = new Date(openPRs[0].updated_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - activeMetrics.max_days_since_last_pr);
+        if (lastPR < cutoff) {
+          console.log(`[Inactive] Last PR updated too long ago: ${lastPR}`);
+          isActive = false;
+        }
       }
-      case "pypi.org": {
-        const pkgName = parts[1];
-        const res = await fetch(`https://pypi.org/pypi/${pkgName}/json`);
-        if (!res.ok) throw new Error("PyPI API failed");
-        const data = await res.json();
-        lastUpdate = Object.values(data.releases).flat().reduce((latest, file) => {
-          const uploaded = new Date(file.upload_time_iso_8601);
-          return !latest || uploaded > latest ? uploaded : latest;
-        }, null);
-        break;
+
+      // Check max_days_since_last_release
+      if (activeMetrics.max_days_since_last_release !== undefined && releases.length) {
+        const lastRelease = new Date(releases[0].published_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - activeMetrics.max_days_since_last_release);
+        if (lastRelease < cutoff) {
+          console.log(`[Inactive] Last release too old: ${lastRelease}`);
+          isActive = false;
+        }
       }
-      case "crates.io": {
-        const crateName = parts[1];
-        const res = await fetch(`https://crates.io/api/v1/crates/${crateName}`);
-        if (!res.ok) throw new Error("Crates.io API failed");
-        lastUpdate = new Date((await res.json()).crate.updated_at);
-        break;
-      }
-      default:
-        return false;
+      
     }
 
-    // --- 2. Determine activity ---
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - config.max_repo_update_time);
-    const isActive = lastUpdate >= cutoff;
-
-    // --- 3. Save to background cache ---
     await setCacheInBackground(key, { isActive });
-
+    console.log(`[Result] ${url} isActive=${isActive}`);
     return isActive;
+
   } catch (e) {
     console.warn("[Repo check failed]", url, e);
+    await setCacheInBackground(key, { isActive: false });
     return false;
   }
 }
 
 
-// ---------- Banner for Repo Page ----------
+// ---------- Banner ----------
 function createBanner(isActive) {
   const banner = document.createElement("div");
   banner.className = "my-banner";
@@ -194,15 +206,16 @@ function createBanner(isActive) {
     transition: "all 0.3s ease",
   });
 
-  // Container for the main text and config link
   const textContainer = document.createElement("div");
   textContainer.style.display = "flex";
   textContainer.style.flexDirection = "column";
   textContainer.style.flex = "1";
 
-  // Main text (non-clickable)
+  const activeEmoji = config.emoji_active.active ? config.emoji_active.value : "";
+  const inactiveEmoji = config.emoji_inactive.active ? config.emoji_inactive.value : "";
+
   const mainText = document.createElement("span");
-  mainText.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo is ${isActive ? "Active !" : "InActive"}`;
+  mainText.textContent = `${isActive ? activeEmoji : inactiveEmoji} Repo is ${isActive ? "Active !" : "InActive"}`;
   Object.assign(mainText.style, {
     color: "white",
     fontWeight: "600",
@@ -214,7 +227,6 @@ function createBanner(isActive) {
     transition: "background-color 0.3s ease, transform 0.2s ease",
   });
 
-  // Hover effect for main text
   mainText.addEventListener("mouseenter", () => {
     mainText.style.transform = "scale(1.0)";
     mainText.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
@@ -224,7 +236,6 @@ function createBanner(isActive) {
     mainText.style.backgroundColor = isActive ? "#1a8917" : "#d32f2f";
   });
 
-  // Config link
   const configLink = document.createElement("a");
   configLink.href = "#";
   configLink.textContent = "(According to your Configuration)";
@@ -235,15 +246,11 @@ function createBanner(isActive) {
     marginTop: "0.25em",
     alignSelf: "center",
   });
-
   configLink.onclick = e => {
     e.preventDefault();
-    chrome.runtime.sendMessage({ action: "open_popup" }, response => {
-      console.log("Response from background:", response);
-    });
+    chrome.runtime.sendMessage({ action: "open_popup" });
   };
 
-  // Close button
   const closeBtn = document.createElement("button");
   closeBtn.textContent = "✖";
   Object.assign(closeBtn.style, {
@@ -259,47 +266,48 @@ function createBanner(isActive) {
   closeBtn.onmouseleave = () => (closeBtn.style.color = "#444");
   closeBtn.onclick = () => banner.remove();
 
-  // Assemble
   textContainer.appendChild(mainText);
   textContainer.appendChild(configLink);
   banner.appendChild(textContainer);
   banner.appendChild(closeBtn);
 
   document.body.prepend(banner);
-
-  // Optional animation
   setTimeout(() => banner.classList.add("active"), 50);
 }
 
 // ---------- Mark Repo Links ----------
 async function markRepoLinks() {
-  console.log(config.emoji_inactive)
   const links = document.querySelectorAll("a");
   for (const link of links) {
     if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
       link.dataset.repoChecked = "true";
       const active = await isRepoActive(link.href);
+
       const mark = document.createElement("span");
-      mark.textContent = active ? `${config.emoji_active} ` : `${config.emoji_inactive} `;
+      mark.textContent = active
+        ? (config.emoji_active.active ? `${config.emoji_active.value} ` : "")
+        : (config.emoji_inactive.active ? `${config.emoji_inactive.value} ` : "");
       mark.style.color = active ? "green" : "red";
+
       link.prepend(mark);
     }
   }
 }
 
-// ---------- Main Execution ----------
+// ---------- Main ----------
 (async () => {
-  config = await loadConfig();
-  console.log("config !!", config);
+  config = await new Promise(resolve => {
+    chrome.storage.local.get(["repoCheckerConfig"], ({ repoCheckerConfig }) => {
+      resolve(repoCheckerConfig || defaultConfig);
+    });
+  });
+
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
   if (currentUrl.includes("github")) {
     const meta = document.querySelector('meta[name="octolytics-dimension-repository_nwo"]');
-    if (!meta) {
-      console.log("No meta , no banner ?")
-      onRepoPage = false;
-    }
+    if (!meta) onRepoPage = false;
   }
 
   if (onRepoPage) {
@@ -312,7 +320,5 @@ async function markRepoLinks() {
   }
 })();
 
-
-window.setInterval(() => {
-  requests = 0
-}, 36000)
+// Reset request counter every hour
+window.setInterval(() => { requests = 0 }, 3600_000);
