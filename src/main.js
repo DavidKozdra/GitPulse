@@ -1,26 +1,8 @@
-// ---------- Configuration ----------
-const CONFIG_KEY = "repoCheckerConfig";
-const defaultConfig = {
-  max_repo_update_time: 365,
-  max_issues_update_time: 30,
-  max_count_unmerged_Prs: 5,
-  emoji_active: "✅",
-  emoji_inactive: "❌"
-};
 
-var requests = 0;
-
-function loadConfig() {
-  try {
-    const stored = localStorage.getItem(CONFIG_KEY);
-    return stored ? { ...defaultConfig, ...JSON.parse(stored) } : defaultConfig;
-  } catch {
-    return { ...defaultConfig };
-  }
-}
 
 const config = loadConfig();
 
+var requests = 0;
 // ---------- Repo URL Detection ----------
 function isRepoUrl(url) {
   try {
