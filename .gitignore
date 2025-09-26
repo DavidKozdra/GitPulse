@@ -142,3 +142,4 @@ vite.config.ts.timestamp-*
 
 Archive.zip
 src.zip
+*.zip
