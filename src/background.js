@@ -69,4 +69,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // async
   }
+
+    if (message.action === "open_popup") {
+    // Open a popup window
+    chrome.windows.create({
+      url: 'popup.html',   // your popup page
+      type: 'popup',
+      width: 400,
+      height: 600
+    }, (newWindow) => {
+      sendResponse({ status: 'Popup opened!' });
+    });
+
+    // Required to use sendResponse asynchronously
+    return true;
+  }
 });

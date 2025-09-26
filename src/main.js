@@ -194,41 +194,58 @@ function createBanner(isActive) {
     transition: "all 0.3s ease",
   });
 
-  const link = document.createElement("a");
-  link.href = "#";
+  // Container for the main text and config link
+  const textContainer = document.createElement("div");
+  textContainer.style.display = "flex";
+  textContainer.style.flexDirection = "column";
+  textContainer.style.flex = "1";
 
-  Object.assign(link.style, {
-    color: isActive ? "white" : "white",
-    textDecoration: "none",
-    flex: "1",
+  // Main text (non-clickable)
+  const mainText = document.createElement("span");
+  mainText.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo is ${isActive ? "Active !" : "InActive"}`;
+  Object.assign(mainText.style, {
+    color: "white",
     fontWeight: "600",
     fontSize: "1rem",
     padding: "0.5em 1em",
     backgroundColor: isActive ? "#1a8917" : "#d32f2f",
-    borderRadius: "9999px", // pill style
+    borderRadius: "9999px",
     textAlign: "center",
     transition: "background-color 0.3s ease, transform 0.2s ease",
   });
 
-  link.textContent = `${isActive ? config.emoji_active : config.emoji_inactive} Repo is ${isActive ? "Active !" : "InActive"}`;
-  link.onclick = e => {
+  // Hover effect for main text
+  mainText.addEventListener("mouseenter", () => {
+    mainText.style.transform = "scale(1.0)";
+    mainText.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
+  });
+  mainText.addEventListener("mouseleave", () => {
+    mainText.style.transform = "scale(1)";
+    mainText.style.backgroundColor = isActive ? "#1a8917" : "#d32f2f";
+  });
+
+  // Config link
+  const configLink = document.createElement("a");
+  configLink.href = "#";
+  configLink.textContent = "(According to your Configuration)";
+  Object.assign(configLink.style, {
+    fontSize: "0.8rem",
+    textDecoration: "underline",
+    cursor: "pointer",
+    marginTop: "0.25em",
+    alignSelf: "center",
+  });
+
+  configLink.onclick = e => {
     e.preventDefault();
-    chrome.runtime.sendMessage({ action: "open_popup" });
+    chrome.runtime.sendMessage({ action: "open_popup" }, response => {
+      console.log("Response from background:", response);
+    });
   };
 
-  // Hover effect
-  link.addEventListener("mouseenter", () => {
-    link.style.transform = "scale(1.0)";
-    link.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
-  });
-  link.addEventListener("mouseleave", () => {
-    link.style.transform = "scale(1)";
-    link.style.backgroundColor = isActive ? "#1a8917" : "#d32f2f";
-  });
-
+  // Close button
   const closeBtn = document.createElement("button");
   closeBtn.textContent = "✖";
-
   Object.assign(closeBtn.style, {
     background: "transparent",
     border: "none",
@@ -238,15 +255,19 @@ function createBanner(isActive) {
     marginLeft: "1em",
     transition: "color 0.2s ease",
   });
-
   closeBtn.onmouseenter = () => (closeBtn.style.color = "#000");
   closeBtn.onmouseleave = () => (closeBtn.style.color = "#444");
   closeBtn.onclick = () => banner.remove();
 
-  banner.appendChild(link);
+  // Assemble
+  textContainer.appendChild(mainText);
+  textContainer.appendChild(configLink);
+  banner.appendChild(textContainer);
   banner.appendChild(closeBtn);
+
   document.body.prepend(banner);
 
+  // Optional animation
   setTimeout(() => banner.classList.add("active"), 50);
 }
 
@@ -268,14 +289,17 @@ async function markRepoLinks() {
 
 // ---------- Main Execution ----------
 (async () => {
-    config = await loadConfig();
+  config = await loadConfig();
   console.log("config !!", config);
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
   if (currentUrl.includes("github")) {
     const meta = document.querySelector('meta[name="octolytics-dimension-repository_nwo"]');
-    if (!meta) onRepoPage = false;
+    if (!meta) {
+      console.log("No meta , no banner ?")
+      onRepoPage = false;
+    }
   }
 
   if (onRepoPage) {
