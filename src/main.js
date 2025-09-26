@@ -1,6 +1,5 @@
+var config;
 
-
-const config = loadConfig();
 
 var requests = 0;
 // ---------- Repo URL Detection ----------
@@ -253,6 +252,7 @@ function createBanner(isActive) {
 
 // ---------- Mark Repo Links ----------
 async function markRepoLinks() {
+  console.log(config.emoji_inactive)
   const links = document.querySelectorAll("a");
   for (const link of links) {
     if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
@@ -268,6 +268,8 @@ async function markRepoLinks() {
 
 // ---------- Main Execution ----------
 (async () => {
+    config = await loadConfig();
+  console.log("config !!", config);
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 

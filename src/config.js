@@ -1,5 +1,5 @@
 // ---------- Configuration ----------
-const CONFIG_KEY = "repoCheckerConfig";
+const CONFIG_KEY = "config";
 const defaultConfig = {
   max_repo_update_time: 365,
   max_issues_update_time: 30,
@@ -8,20 +8,31 @@ const defaultConfig = {
   emoji_inactive: "❌"
 };
 
+// ---------------------------
+// Load config via background
+// ---------------------------
+async function loadConfig() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: "getConfig" }, (response) => {
+      const stored = response?.config;
+      if (stored) {
+        resolve({ ...defaultConfig, ...stored });
+      } else {
 
-function loadConfig() {
-  try {
-    const stored = localStorage.getItem(CONFIG_KEY);
-    return stored ? { ...defaultConfig, ...JSON.parse(stored) } : defaultConfig;
-  } catch {
-    return { ...defaultConfig };
-  }
+        console.log("FAIL")
+        resolve({ ...defaultConfig });
+      }
+    });
+  });
 }
 
-  // ---------------------------
-  // Save config to localStorage
-  // ---------------------------
-  function saveConfig(config) {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  }
-
+// ---------------------------
+// Save config via background
+// ---------------------------
+function saveConfig(config) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: "setConfig", config }, (response) => {
+      resolve(response?.success || false);
+    });
+  });
+}
