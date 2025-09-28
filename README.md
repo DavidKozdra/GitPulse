@@ -1,12 +1,13 @@
 # GitPulse
-chrome extension to measure and alert about archived repos 
-
+a chrome extension to inform users of the activity of repo links before you click them. 
 
 
 ## 🚀 Overview
 
 We’ve all been there: you open a promising new repository to explore, contribute, or file an issue… only to discover it’s a dead project. **GitPulse** saves you time by automatically checking repo activity and adding a visible banner to the top of a GitHub repository’s home page.
 
+
+https://chromewebstore.google.com/detail/gitpulse/fiamhceclfnbckgpnmpkhldgbdhiamhg
 
 ### metrics that can make a repo inactive
  - last closed PR 
@@ -48,11 +49,11 @@ We’ve all been there: you open a promising new repository to explore, contribu
 
 * [x] Add repo activity scoring system (commits, issues, PRs). IE go to repo page and log if active or archived
 * [x] Banner to display status on the page. 
-* [ ] Configurable rule system. settings pop up and editiable rules. 
+* [X] Configurable rule system. settings pop up and editiable rules. 
 * [x] web searches or even all github urls displayed also checked remotly. 
 * [ ] Browser support beyond Chrome (Firefox, Edge).
 * [x] Gitlab and npm and other repo systems maybe even docker ? 
-* [ ] Dark mode support for the banner and settings system.
+* [X] Dark mode support for the banner and settings system.
 
 ## 🤝 Contributing
 
