@@ -101,7 +101,7 @@ async function isRepoActive(url) {
       const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
 
       if (repoRes.status === 403) {
-        console.warn(`[Rate limited] GitHub API rate limit hit for ${owner}/${repo}`);]
+        console.warn(`[Rate limited] GitHub API rate limit hit for ${owner}/${repo}`);
         rate_limited = true
         console.log("limit !!")
         return "rate_limited";

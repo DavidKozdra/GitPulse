@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitPulse",
-  "version": "1.0",
+  "version": "1.1",
   "description": "a chrome extension to inform users of the activity of repo links before you click them.",
   "permissions": ["activeTab", "scripting", "storage"],
  "content_scripts": [
