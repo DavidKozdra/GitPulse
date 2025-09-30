@@ -44,7 +44,7 @@ const defaultConfig = {
     order: 6
   },
   max_avg_commit_per_week: {
-    name: "Minimum average commits per week",
+    name: "Max average commits per week",
     value: 0.5,
     type: "number",
     active: false,
@@ -96,10 +96,22 @@ async function loadConfig() {
 // ---------------------------
 // Save config via background
 // ---------------------------
-function saveConfig(config) {
+async function saveConfig(config) {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ action: "setConfig", config }, (response) => {
       resolve(response?.success || false);
     });
   });
 }
+
+
+
+async function resetConfig() {
+  const configCopy = JSON.parse(JSON.stringify(defaultConfig)); // deep copy
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: "setConfig", config: configCopy }, (response) => {
+      resolve(response?.success || false);
+    });
+  });
+}
+

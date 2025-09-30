@@ -34,6 +34,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     chrome.storage.local.set({ repoCheckerConfig: newConfig }, () => resolve(true));
   });
 
+  const clearRepoCache = () => new Promise(resolve => {
+    chrome.runtime.sendMessage({ action: "clearCache" }, (response) => resolve(response));
+  });
+
   // ---------------------------
   // Load config and PAT
   // ---------------------------
@@ -50,46 +54,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     .filter(key => config[key] && config[key].value !== undefined)
     .sort((a, b) => config[a].order - config[b].order);
 
- sortedKeys.forEach(key => {
-  const field = config[key];
+  sortedKeys.forEach(key => {
+    const field = config[key];
 
-  const formGroup = document.createElement("div");
-  formGroup.className = "form-group";
-  formGroup.style.display = "flex";
-  formGroup.style.alignItems = "center";
-  formGroup.style.justifyContent = "space-between";
+    const formGroup = document.createElement("div");
+    formGroup.className = "form-group";
+    formGroup.style.display = "flex";
+    formGroup.style.alignItems = "center";
+    formGroup.style.justifyContent = "space-between";
+    formGroup.style.flexDirection = "row";
 
-  formGroup.style.flexDirection = "row";
-  // Label
-  const label = document.createElement("label");
-  label.htmlFor = key;
-  label.textContent = field.name || key;
-  label.style.flex = "1"; // fill remaining space
+    // Label
+    const label = document.createElement("label");
+    label.htmlFor = key;
+    label.textContent = field.name || key;
+    label.style.flex = "1";
 
-  // Input
-  const input = document.createElement("input");
-  input.id = key;
-  input.type = field.type === "number" ? "number" : "text";
-  input.value = field.value;
-  input.style.flex = "1";
-  if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
+    // Input
+    const input = document.createElement("input");
+    input.id = key;
+    input.type = field.type === "number" ? "number" : "text";
+    input.value = field.value;
+    input.style.flex = "1";
+    if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
 
-  // Toggle checkbox
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
-  toggle.checked = field.active;
-  toggle.style.marginLeft = "8px";
+    // Toggle checkbox
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = field.active;
+    toggle.style.marginLeft = "8px";
+    toggle.addEventListener("change", () => field.active = toggle.checked);
 
-  toggle.addEventListener("change", () => {
-    field.active = toggle.checked; // update active in memory
+    formGroup.appendChild(label);
+    formGroup.appendChild(input);
+    formGroup.appendChild(toggle);
+
+    formsContainer.appendChild(formGroup);
   });
-
-  formGroup.appendChild(label);
-  formGroup.appendChild(input);
-  formGroup.appendChild(toggle);
-
-  formsContainer.appendChild(formGroup);
-});
 
   // ---------------------------
   // PAT field
@@ -101,43 +102,55 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // ---------------------------
+  // Helper to update UI inputs and toggles
+  // ---------------------------
+  const updateUI = (configToApply) => {
+    sortedKeys.forEach(key => {
+      const field = configToApply[key];
+      const input = document.getElementById(key);
+      const toggle = input?.nextSibling?.nextSibling; // assumes structure: label -> input -> toggle
+      if (input) input.value = field.value;
+      if (toggle && toggle.type === "checkbox") toggle.checked = field.active;
+    });
+  };
+
+  // ---------------------------
   // Save button
   // ---------------------------
-// Clears all cached repo entries
-async function clearRepoCache() {
-  return new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "clearCache" }), (response) => resolve(response)
-  })
-}
+  document.getElementById("saveBtn").addEventListener("click", async () => {
+    const newConfig = {};
+    sortedKeys.forEach(key => {
+      const input = document.getElementById(key);
+      if (!input) return;
+      const field = config[key];
+      if (field.type === "number") {
+        const val = Number(input.value);
+        newConfig[key] = { ...field, value: isNaN(val) ? field.value : val };
+      } else {
+        newConfig[key] = { ...field, value: input.value || field.value };
+      }
+    });
 
-document.getElementById("saveBtn").addEventListener("click", async () => {
-  const newConfig = {};
-
-  sortedKeys.forEach(key => {
-    const input = document.getElementById(key);
-    if (!input) return;
-    const field = config[key];
-
-    if (field.type === "number") {
-      const val = Number(input.value);
-      newConfig[key] = { ...field, value: isNaN(val) ? field.value : val };
-    } else {
-      newConfig[key] = { ...field, value: input.value || field.value };
-    }
+    await saveConfig(newConfig);
+    await savePAT(patInput.value.trim());
+    await clearRepoCache();
+    alert("Configuration saved!");
   });
 
+  // ---------------------------
+  // Reset button
+  // ---------------------------
+  document.getElementById("clearBtn").addEventListener("click", async () => {
+    const confirmReset = confirm("Are you sure you want to reset your configuration to the default settings?");
+    if (!confirmReset) return;
 
-  alert("Configuration saved!");
-
-  await saveConfig(newConfig);
-
-  // Save PAT separately
-  await savePAT(patInput.value.trim());
-
-  // Clear cache because config changed
-  await clearRepoCache();
+    const defaultConfigCopy = await resetConfig(); // from config.js
+    await saveConfig(defaultConfigCopy);           // persist defaults
+    patInput.value = "";                           // clear PAT
+    await clearRepoCache();
+    alert("✅ Configuration has been reset to defaults.");
 
 
-});
-
+    updateUI(defaultConfigCopy);                   // update form inputs
+  });
 });

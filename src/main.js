@@ -428,13 +428,14 @@ async function markRepoLinks() {
   const iframes = document.querySelectorAll("iframe");
   for (const iframe of iframes) {
     try {
+      
       const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
       if (iframeDoc) {
         await markLinksInDocument(iframeDoc);
       }
     } catch (err) {
       // Cross-origin iframe — can't access
-      console.warn("Cannot access iframe:", iframe.src, err);
+      console.warn("Cannot access iframe:", iframe?.src, err);
     }
   }
 }

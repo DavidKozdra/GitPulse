@@ -72,10 +72,11 @@ if (message.action === "clearCache") {
   }
 
   if (message.action === "setConfig") {
+
     chrome.storage.local.set({ config: message.config }, () => {
-      console.log("[Config] Updated", message.config);
       sendResponse({ success: true });
     });
+
     return true; // async
   }
 
@@ -91,7 +92,7 @@ if (message.action === "clearCache") {
     chrome.windows.create({
       url: 'popup.html',   // your popup page
       type: 'popup',
-      width: 400,
+      width: 600,
       height: 600
     }, (newWindow) => {
       sendResponse({ status: 'Popup opened!' });

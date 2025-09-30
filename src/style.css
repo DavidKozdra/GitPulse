@@ -179,3 +179,8 @@ button:hover { background: var(--button-hover-bg); }
 @media (max-width: 500px) {
   .card { width: 100%; padding: 20px; }
 }
+
+
+.clearBtn {
+  background-color: rgb(180, 53, 53);
+}
