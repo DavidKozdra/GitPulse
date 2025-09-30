@@ -1,6 +1,5 @@
 var config;
-var requests = 0;
-
+var rate_limited = false
 // ---------- Helpers ----------
 function isRepoUrl(url) {
   try {
@@ -78,14 +77,11 @@ async function isRepoActive(url) {
   const key = new URL(url).hostname + new URL(url).pathname;
 
   const cached = await getCacheFromBackground(key);
-
-  console.log(cached)
-
-  if (cached?.isActive != undefined || !cached || cached.isActive != null) {
+  if (cached?.isActive !== undefined && cached?.isActive !== null) {
     console.log(`[Cache hit] ${url} isActive=${cached.isActive}`);
     return cached.isActive;
-  }else {
-    console.log("Cache miss")
+  } else {
+    console.log("Cache miss");
   }
 
   try {
@@ -103,9 +99,29 @@ async function isRepoActive(url) {
 
       // Repo info
       const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+
+      if (repoRes.status === 403) {
+        console.warn(`[Rate limited] GitHub API rate limit hit for ${owner}/${repo}`);]
+        rate_limited = true
+        console.log("limit !!")
+        return "rate_limited";
+        
+      }else {
+        console.log("back on ")
+        rate_limited = false
+      }
+
       if (!repoRes.ok) throw new Error(`GitHub API failed: ${repoRes.status}`);
+
       const repoData = await repoRes.json();
       console.log(`[Repo fetched] ${url}, last push: ${repoData.pushed_at}`);
+
+      // Private repo check
+      if (repoData.private) {
+        console.log(`[Private Repo] ${owner}/${repo}`);
+        await setCacheInBackground(key, { isActive: "private" });
+        return "private";
+      }
 
       // Open PRs
       const prRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=1`, { headers });
@@ -175,7 +191,6 @@ async function isRepoActive(url) {
           isActive = false;
         }
       }
-      
     }
 
     await setCacheInBackground(key, { isActive });
@@ -189,14 +204,20 @@ async function isRepoActive(url) {
   }
 }
 
-
 // ---------- Banner ----------
-function createBanner(isActive) {
+function createBanner(status) {
+  const isRateLimited = status === "rate_limited";
+  const isPrivate = status === "private";
+  const isActive = status === true;
+  const isInactive = status === false;
+
   const banner = document.createElement("div");
   banner.className = "my-banner";
 
   Object.assign(banner.style, {
-    background: isActive ? "#e6ffe6" : "#ffe6e6",
+    background: isRateLimited ? "#fff4e5" :
+                isPrivate ? "#f0f0f0" :
+                isActive ? "#e6ffe6" : "#ffe6e6",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -214,34 +235,46 @@ function createBanner(isActive) {
   textContainer.style.flexDirection = "column";
   textContainer.style.flex = "1";
 
-  const activeEmoji = config.emoji_active.active ? config.emoji_active.value : "";
-  const inactiveEmoji = config.emoji_inactive.active ? config.emoji_inactive.value : "";
+  let mainMessage = "";
+  let bgColor = "";
+  let emoji = "";
+
+  if (isRateLimited) {
+    emoji = "⏳";
+    mainMessage = "Rate limit hit — Results temporarily inactive";
+    bgColor = "#f57c00";
+  } else if (isPrivate) {
+    emoji = "🔒";
+    mainMessage = "Private Repository";
+    bgColor = "#555";
+  } else if (isActive) {
+    emoji = config.emoji_active.active ? config.emoji_active.value : "";
+    mainMessage = `${emoji} Repo is Active !`;
+    bgColor = "#1a8917";
+  } else if (isInactive) {
+    emoji = config.emoji_inactive.active ? config.emoji_inactive.value : "";
+    mainMessage = `${emoji} Repo is InActive`;
+    bgColor = "#d32f2f";
+  }
 
   const mainText = document.createElement("span");
-  mainText.textContent = `${isActive ? activeEmoji : inactiveEmoji} Repo is ${isActive ? "Active !" : "InActive"}`;
+  mainText.textContent = mainMessage;
   Object.assign(mainText.style, {
     color: "white",
     fontWeight: "600",
     fontSize: "1rem",
     padding: "0.5em 1em",
-    backgroundColor: isActive ? "#1a8917" : "#d32f2f",
+    backgroundColor: bgColor,
     borderRadius: "9999px",
     textAlign: "center",
     transition: "background-color 0.3s ease, transform 0.2s ease",
   });
 
-  mainText.addEventListener("mouseenter", () => {
-    mainText.style.transform = "scale(1.0)";
-    mainText.style.backgroundColor = isActive ? "#146c12" : "#b71c1c";
-  });
-  mainText.addEventListener("mouseleave", () => {
-    mainText.style.transform = "scale(1)";
-    mainText.style.backgroundColor = isActive ? "#1a8917" : "#d32f2f";
-  });
-
   const configLink = document.createElement("a");
   configLink.href = "#";
-  configLink.textContent = "(According to your Configuration)";
+  configLink.textContent = isRateLimited
+    ? "(GitHub API limit reached Add your Personal Access Token)"
+    : "(According to your Configuration)";
   Object.assign(configLink.style, {
     fontSize: "0.8rem",
     textDecoration: "underline",
@@ -265,17 +298,13 @@ function createBanner(isActive) {
     marginLeft: "1em",
     transition: "color 0.2s ease",
   });
-  closeBtn.onmouseenter = () => (closeBtn.style.color = "#000");
-  closeBtn.onmouseleave = () => (closeBtn.style.color = "#444");
   closeBtn.onclick = () => banner.remove();
 
   textContainer.appendChild(mainText);
   textContainer.appendChild(configLink);
   banner.appendChild(textContainer);
   banner.appendChild(closeBtn);
-
   document.body.prepend(banner);
-  setTimeout(() => banner.classList.add("active"), 50);
 }
 
 // ---------- Mark Repo Links ----------
@@ -284,13 +313,21 @@ async function markRepoLinks() {
   for (const link of links) {
     if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
       link.dataset.repoChecked = "true";
-      const active = await isRepoActive(link.href);
-
+      const status = await isRepoActive(link.href);
+   
       const mark = document.createElement("span");
-      mark.textContent = active
-        ? (config.emoji_active.active ? `${config.emoji_active.value} ` : "")
-        : (config.emoji_inactive.active ? `${config.emoji_inactive.value} ` : "");
-      mark.style.color = active ? "green" : "red";
+      mark.textContent =
+        status === "private" ? "🔒 " :
+        status === "rate_limited" ? "⏳ " :
+        status === true ? (config.emoji_active.active ? `${config.emoji_active.value} ` : "") :
+        status === false ? (config.emoji_inactive.active ? `${config.emoji_inactive.value} ` : "") :
+        "";
+
+      mark.style.color =
+        status === "private" ? "#555" :
+        status === "rate_limited" ? "#f57c00" :
+        status === true ? "green" :
+        "red";
 
       link.prepend(mark);
     }
@@ -313,15 +350,15 @@ async function markRepoLinks() {
     if (!meta) onRepoPage = false;
   }
 
+
   if (onRepoPage) {
-    const active = await isRepoActive(currentUrl);
-    createBanner(active);
+    const status = await isRepoActive(currentUrl);
+    createBanner(status);
   } else {
+
     markRepoLinks();
     const observer = new MutationObserver(markRepoLinks);
     observer.observe(document.body, { childList: true, subtree: true });
   }
 })();
 
-// Reset request counter every hour
-window.setInterval(() => { requests = 0 }, 3600_000);
