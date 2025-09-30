@@ -420,15 +420,33 @@ function createBanner(status) {
   document.body.prepend(banner);
 }
 
-// ---------- Mark Repo Links ----------
 async function markRepoLinks() {
-  const links = document.querySelectorAll("a");
+  // Top-level document
+  await markLinksInDocument(document);
+
+  // Then check iframes
+  const iframes = document.querySelectorAll("iframe");
+  for (const iframe of iframes) {
+    try {
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      if (iframeDoc) {
+        await markLinksInDocument(iframeDoc);
+      }
+    } catch (err) {
+      // Cross-origin iframe — can't access
+      console.warn("Cannot access iframe:", iframe.src, err);
+    }
+  }
+}
+
+async function markLinksInDocument(doc) {
+  const links = doc.querySelectorAll("a");
   for (const link of links) {
     if (isRepoUrl(link.href) && !link.dataset.repoChecked) {
       link.dataset.repoChecked = "true";
       const status = await isRepoActive(link.href);
-   
-      const mark = document.createElement("span");
+
+      const mark = doc.createElement("span");
       mark.textContent =
         status === "private" ? "🔒 " :
         status === "rate_limited" ? "⏳ " :
@@ -446,6 +464,7 @@ async function markRepoLinks() {
     }
   }
 }
+
 function looksLikeGithubRepoUrl(url) {
   try {
     const { hostname, pathname } = new URL(url);
