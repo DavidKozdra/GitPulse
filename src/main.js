@@ -333,8 +333,18 @@ async function markRepoLinks() {
     }
   }
 }
+async function waitForRepoMeta(timeout = 3000) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const meta = document.querySelector('meta[name="octolytics-dimension-repository_nwo"]');
+    if (meta) return true;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return false;
+}
 
-// ---------- Main ----------
+
+
 (async () => {
   config = await new Promise(resolve => {
     chrome.storage.local.get(["repoCheckerConfig"], ({ repoCheckerConfig }) => {
@@ -345,20 +355,25 @@ async function markRepoLinks() {
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
-  if (currentUrl.includes("github")) {
-    const meta = document.querySelector('meta[name="octolytics-dimension-repository_nwo"]');
-    if (!meta) onRepoPage = false;
+  // Extra detection for GitHub repo pages
+  if (onRepoPage && currentUrl.includes("github.com")) {
+    const hasMeta = await waitForRepoMeta();
+    if (!hasMeta) {
+      console.log("[Repo detection] No meta tag found after waiting, assuming not a repo page");
+      onRepoPage = false;
+    } else {
+      console.log("[Repo detection] Meta tag confirmed, it's a repo page");
+    }
   }
-
 
   if (onRepoPage) {
     const status = await isRepoActive(currentUrl);
     createBanner(status);
   } else {
-
     markRepoLinks();
     const observer = new MutationObserver(markRepoLinks);
     observer.observe(document.body, { childList: true, subtree: true });
   }
 })();
+
 
