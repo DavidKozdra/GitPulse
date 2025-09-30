@@ -529,6 +529,8 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
   }
 })();
 
+/*
+
 const githubNavObserver = new MutationObserver(async () => {
   if (looksLikeGithubRepoUrl(window.location.href) && isGithubRepoPageNow()) {
     const existingBanner = document.querySelector(".my-banner");
@@ -542,3 +544,4 @@ const githubNavObserver = new MutationObserver(async () => {
 
 
 githubNavObserver.observe(document.body, { childList: true, subtree: true });
+*/
