@@ -1,4 +1,3 @@
-console.log("GitPulse SW started", chrome.runtime?.id);
 // background.js (MV3 service worker)
 
 // ---------------------------
@@ -130,7 +129,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   };
 }
 
-// Add other ecosystems similarly (GitLab, Bitbucket, npm, etc.)
+// Add other ecosystems here as needed (GitLab, Bitbucket, npm, PyPI, crates, Packagist, DockerHub, etc.)
 
 async function fetchRepoStatusByUrl(rawUrl, rules) {
   const { hostname, pathname } = new URL(rawUrl);
@@ -143,6 +142,7 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       const [owner, repo] = parts;
       return fetchGithubRepoStatus({ owner, repo }, pat, rules);
     }
+    // TODO: handle other hosts similar to GitHub and return {status, details}
     default:
       // No integration → assume active to avoid blocking
       return { status: true };
@@ -150,127 +150,139 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
 }
 
 // ---------------------------
-// Unified message handler
+// Message router (single listener)
 // ---------------------------
-async function handleMessage(message, sender, sendResponse) {
-  try {
-    switch (message?.action) {
-      case "ping": {
-        sendResponse({ pong: true, id: chrome.runtime?.id, external: !!sender?.origin });
-        return;
-      }
-
-      case "open-url": {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs?.length || !tabs[0]?.url) {
-          sendResponse({ ok: false, error: "No active tab URL available" });
-          return;
-        }
-        sendResponse({ ok: true });
-        return;
-      }
-
-      case "getCache": {
-        const key = isString(message.key) ? message.key : "";
-        const item = key ? await readCache(key) : null;
-        if (item) {
-          console.log(`[Cache] HIT for ${CACHE_PREFIX + key}`);
-          sendResponse({ isActive: item.isActive, fromCache: true, details: item.details });
-        } else {
-          console.log(`[Cache] MISS or STALE for ${CACHE_PREFIX + key}`);
-          sendResponse({ isActive: null, fromCache: false });
-        }
-        return;
-      }
-
-      case "setCache": {
-        const key = isString(message.key) ? message.key : "";
-        if (!key) { sendResponse({ success: false, error: "Missing key" }); return; }
-        await writeCache(key, message.value || {});
-        console.log(`[Cache] Stored ${CACHE_PREFIX + key}`, message.value);
-        sendResponse({ success: true });
-        return;
-      }
-
-      case "clearCache": {
-        await clearCache();
-        sendResponse({ success: true });
-        return;
-      }
-
-      case "setPAT": {
-        await setLocal({ githubPAT: String(message.pat || "") });
-        await clearCache();
-        sendResponse({ success: true });
-        return;
-      }
-
-      case "setConfig": {
-        await setLocal({ [CONFIG_KEY]: message.config || {} });
-        sendResponse({ success: true });
-        return;
-      }
-
-      case "getConfig": {
-        const stored = (await getLocal([CONFIG_KEY]))[CONFIG_KEY] || {};
-        sendResponse({ config: stored });
-        return;
-      }
-
-      case "fetchRepoStatus": {
-        console.log("fetchRepoStatus received:", message.url);
-        if (typeof message.url !== "string") { sendResponse({ ok: false, error: "Missing url" }); return; }
-
-        const cacheKey = (() => {
-          try { const u = new URL(message.url); return u.hostname + u.pathname; }
-          catch { return ""; }
-        })();
-        if (!cacheKey) { sendResponse({ ok: false, error: "Invalid URL" }); return; }
-
-        const cached = await readCache(cacheKey);
-        if (cached) {
-          sendResponse({ ok: true, result: { status: cached.isActive, details: cached.details }, fromCache: true });
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  (async () => {
+    try {
+      switch (message?.action) {
+        case "open-url": {
+          // MV3: no alert() — return an error if no active tab
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tabs || !tabs.length || !tabs[0].url) {
+            sendResponse({ ok: false, error: "No active tab URL available" });
+            return;
+          }
+          // If you intended to open a specific URL, do it here with chrome.tabs.create
+          sendResponse({ ok: true });
           return;
         }
 
-        const rules = await loadActiveRules();
-        try {
-          const result = await fetchRepoStatusByUrl(message.url, rules);
-          await writeCache(cacheKey, { isActive: result.status, details: result.details });
-          sendResponse({ ok: true, result, fromCache: false });
-        } catch (err) {
-          await writeCache(cacheKey, { isActive: false, details: { error: String(err) } });
-          sendResponse({ ok: true, result: { status: false }, fromCache: false });
+        case "getCache": {
+          const key = isString(message.key) ? message.key : "";
+          const item = key ? await readCache(key) : null;
+          if (item) {
+            console.log(`[Cache] HIT for ${CACHE_PREFIX + key}`);
+            sendResponse({ isActive: item.isActive, fromCache: true, details: item.details });
+          } else {
+            console.log(`[Cache] MISS or STALE for ${CACHE_PREFIX + key}`);
+            sendResponse({ isActive: null, fromCache: false });
+          }
+          return;
         }
-        return;
-      }
 
-      default:
-        sendResponse({ ok: false, error: "Unknown action" });
-        return;
+        case "setCache": {
+          const key = isString(message.key) ? message.key : "";
+          if (!key) {
+            sendResponse({ success: false, error: "Missing key" });
+            return;
+          }
+          await writeCache(key, message.value || {});
+          console.log(`[Cache] Stored ${CACHE_PREFIX + key}`, message.value);
+          sendResponse({ success: true });
+          return;
+        }
+
+        case "clearCache": {
+          await clearCache();
+          sendResponse({ success: true });
+          return;
+        }
+
+        // Keep PAT private to background. Prefer UI to write it, but no public read.
+        // If you need a setter from popup, keep it; but don't hand PAT to content scripts.
+        case "setPAT": {
+          await setLocal({ githubPAT: String(message.pat || "") });
+          await clearCache();
+          sendResponse({ success: true });
+          return;
+        }
+
+        case "setConfig": {
+          // Store unified config key used across popup/content/background
+          await setLocal({ [CONFIG_KEY]: message.config || {} });
+          sendResponse({ success: true });
+          return;
+        }
+
+        case "getConfig": {
+          const stored = (await getLocal([CONFIG_KEY]))[CONFIG_KEY] || {};
+          sendResponse({ config: stored });
+          return;
+        }
+
+        // NEW: main entry for content scripts to request a repo status
+        case "fetchRepoStatus": {
+          if (!isString(message.url)) {
+            sendResponse({ ok: false, error: "Missing url" });
+            return;
+          }
+
+          // 1) try cache
+          const cacheKey = (() => {
+            try {
+              const u = new URL(message.url);
+              return u.hostname + u.pathname;
+            } catch {
+              return "";
+            }
+          })();
+
+          if (!cacheKey) {
+            sendResponse({ ok: false, error: "Invalid URL" });
+            return;
+          }
+
+          const cached = await readCache(cacheKey);
+          if (cached) {
+            sendResponse({ ok: true, result: { status: cached.isActive, details: cached.details } });
+            return;
+          }
+
+          // 2) compute + store
+          const rules = await loadActiveRules();
+          try {
+            const result = await fetchRepoStatusByUrl(message.url, rules);
+            await writeCache(cacheKey, { isActive: result.status, details: result.details });
+            sendResponse({ ok: true, result });
+          } catch (err) {
+            // Fail closed (inactive) and cache the failure shortly (normal TTL is fine)
+            await writeCache(cacheKey, { isActive: false, details: { error: String(err) } });
+            sendResponse({ ok: true, result: { status: false } });
+          }
+          return;
+        }
+
+        case "open_popup": {
+          // open a popup-sized window with your page
+          await chrome.windows.create({
+            url: "popup.html",
+            type: "popup",
+            width: 600,
+            height: 600,
+          });
+          sendResponse({ status: "Popup opened!" });
+          return;
+        }
+
+        default:
+          sendResponse({ ok: false, error: "Unknown action" });
+          return;
+      }
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e) });
     }
-  } catch (e) {
-    sendResponse({ ok: false, error: String(e) });
-  }
-}
+  })();
 
-// ---------------------------
-// Listeners (single source of truth)
-// ---------------------------
-
-// Internal (popup, content scripts)
-chrome.runtime.onMessage.addListener((m, s, r) => {
-  handleMessage(m, s, r);
-  return true; // keep channel open for async sendResponse
-});
-
-// External (web pages using your extension ID)
-chrome.runtime.onMessageExternal.addListener((m, s, r) => {
-  // Tighten origin if desired
-  if (!s?.origin?.endsWith("github.com")) {
-    r({ ok: false, error: "origin not allowed" });
-    return;
-  }
-  handleMessage(m, s, r);
-  return true; // keep channel open for async sendResponse
+  return true; // keep channel open for async responses
 });

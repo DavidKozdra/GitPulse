@@ -1,12 +1,5 @@
 var config;
 var rate_limited = false
-
-// Default configuration
-const defaultConfig = {
-  emoji_active: { active: true, value: "✅" },
-  emoji_inactive: { active: true, value: "❌" }
-};
-
 // ---------- Helpers ----------
 async function isRepoActive(url) {
   const res = await new Promise(resolve => {
@@ -19,7 +12,6 @@ async function isRepoActive(url) {
     console.warn("[Repo check] background error", res?.error);
     return false; // fail closed
   }
-  return res.result?.status; // true | false | "rate_limited" | "private"
 }
 
 
@@ -107,6 +99,219 @@ function isRepoUrl(url) {
     return false;
   }
 }
+
+// ---------- Repo Activity Check ---------- 
+  return res.result?.status; // true | false | "rate_limited" | "private"
+
+
+  console.log(`[Repo check] Cache miss for ${url}`);
+  let isActive = true;
+
+  try {
+    switch (hostname) {
+      // -------------------- GITHUB --------------------
+      case "github.com": {
+        const [owner, repo] = parts;
+        const githubPAT = await getPAT();
+        const headers = {
+          Accept: "application/vnd.github.v3+json",
+          ...(githubPAT ? { Authorization: `token ${githubPAT}` } : {})
+        };
+
+        // COMMENTED OUT: const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+        const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+        if (repoRes.status === 403) {
+          console.warn(`[Rate limited] GitHub API hit for ${owner}/${repo}`);
+          await setCacheInBackground(key, { isActive: "rate_limited" });
+          return "rate_limited";
+        }
+        if (!repoRes.ok) throw new Error(`GitHub API failed: ${repoRes.status}`);
+
+        const repoData = await repoRes.json();
+        if (repoData.private) {
+          await setCacheInBackground(key, { isActive: "private" });
+          return "private";
+        }
+
+        // Push activity
+        const lastPush = new Date(repoData.pushed_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+        if (lastPush < cutoff) isActive = false;
+
+        // Optionally add PR / issues / releases checks (your existing code already does)
+        break;
+      }
+
+      // -------------------- CODEBERG (Gitea) --------------------
+      case "codeberg.org": {
+        const [owner, repo] = parts;
+        // COMMENTED OUT: const res = await fetch(`https://codeberg.org/api/v1/repos/${owner}/${repo}`);
+        // if (!res.ok) throw new Error(`Codeberg API failed: ${res.status}`);
+        // const data = await res.json();
+
+        // const lastActivity = new Date(data.updated_at || data.pushed_at || data.created_at);
+        // const cutoff = new Date();
+        // cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+        // isActive = lastActivity >= cutoff;
+        break;
+      }
+
+      // -------------------- GITLAB --------------------
+      case "gitlab.com": {
+        const [owner, repo] = parts;
+        const projectPath = encodeURIComponent(`${owner}/${repo}`);
+        // COMMENTED OUT: const res = await fetch(`https://gitlab.com/api/v4/projects/${projectPath}`);
+        if (!res.ok) throw new Error(`GitLab API failed: ${res.status}`);
+        const data = await res.json();
+
+        const lastActivity = new Date(data.last_activity_at);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+        isActive = lastActivity >= cutoff;
+        break;
+      }
+
+      // -------------------- BITBUCKET --------------------
+      case "bitbucket.org": {
+        const [workspace, repo] = parts;
+        // COMMENTED OUT: const res = await fetch(`https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}`);
+        if (!res.ok) throw new Error(`Bitbucket API failed: ${res.status}`);
+        const data = await res.json();
+
+        const lastActivity = new Date(data.updated_on || data.created_on);
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+        isActive = lastActivity >= cutoff;
+        break;
+      }
+
+      // -------------------- SOURCEHUT (git.sr.ht) --------------------
+      case "git.sr.ht": {
+        // No easy API: scrape the page for <time datetime="...">
+        // COMMENTED OUT: const res = await fetch(url);
+        if (res.ok) {
+          const text = await res.text();
+          const match = text.match(/<time[^>]+datetime="([^"]+)"/);
+          if (match) {
+            const last = new Date(match[1]);
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+            isActive = last >= cutoff;
+          }
+        }
+        break;
+      }
+
+      // -------------------- LAUNCHPAD --------------------
+      case "launchpad.net": {
+        // Similar fallback: scrape for time elements
+        // COMMENTED OUT: const res = await fetch(url);
+        if (res.ok) {
+          const text = await res.text();
+          const match = text.match(/<time[^>]+datetime="([^"]+)"/);
+          if (match) {
+            const last = new Date(match[1]);
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+            isActive = last >= cutoff;
+          }
+        }
+        break;
+      }
+
+      // -------------------- NPM --------------------
+      case "www.npmjs.com":
+      case "npmjs.com": {
+        // e.g. https://www.npmjs.com/package/react
+        const pkg = parts.slice(1).join("/");
+        // COMMENTED OUT: const res = await fetch(`https://registry.npmjs.org/${pkg}`);
+        if (res.ok) {
+          const data = await res.json();
+          const last = new Date(data.time?.modified || data.time?.created);
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+          isActive = last >= cutoff;
+        }
+        break;
+      }
+
+      // -------------------- PYPI --------------------
+      case "pypi.org": {
+        // e.g. https://pypi.org/project/requests/
+        const pkg = parts[1];
+        // COMMENTED OUT: const res = await fetch(`https://pypi.org/pypi/${pkg}/json`);
+        if (res.ok) {
+          const data = await res.json();
+          const last = new Date(data.info?.upload_time_iso_8601 || data.releases?.[0]?.upload_time);
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+          isActive = last >= cutoff;
+        }
+        break;
+      }
+
+      // -------------------- CRATES.IO --------------------
+      case "crates.io": {
+        const crate = parts[1];
+        // COMMENTED OUT: const res = await fetch(`https://crates.io/api/v1/crates/${crate}`);
+        if (res.ok) {
+          const data = await res.json();
+          const last = new Date(data.crate?.updated_at);
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+          isActive = last >= cutoff;
+        }
+        break;
+      }
+
+      // -------------------- PACKAGIST --------------------
+      case "packagist.org": {
+        const vendor = parts[1];
+        const pkg = parts[2];
+        // COMMENTED OUT: const res = await fetch(`https://packagist.org/packages/${vendor}/${pkg}.json`);
+        if (res.ok) {
+          const data = await res.json();
+          const last = new Date(data.package?.time);
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+          isActive = last >= cutoff;
+        }
+        break;
+      }
+
+      // -------------------- DOCKER HUB --------------------
+      case "hub.docker.com": {
+        const [_, namespace, repo] = parts; // /r/namespace/repo
+        // COMMENTED OUT: const res = await fetch(`https://hub.docker.com/v2/repositories/${namespace}/${repo}/`);
+        if (res.ok) {
+          const data = await res.json();
+          const last = new Date(data.last_updated || data.last_pushed);
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - (activeMetrics.max_repo_update_time ?? 180));
+          isActive = last >= cutoff;
+        }
+        break;
+      }
+
+      // -------------------- FALLBACK --------------------
+      default:
+        console.log(`[Repo check] No integration for ${hostname}`);
+        isActive = true;
+        break;
+    }
+
+    await setCacheInBackground(key, { isActive });
+    console.log(`[Result] ${url} isActive=${isActive}`);
+    return isActive;
+
+  } catch (e) {
+    console.warn("[Repo check failed]", url, e);
+    await setCacheInBackground(key, { isActive: false });
+    return false;
+  }
+}
+
 
 // ---------- Banner ----------
 function createBanner(status) {
