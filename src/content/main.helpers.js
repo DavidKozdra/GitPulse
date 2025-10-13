@@ -11,6 +11,11 @@ async function isRepoActive(url) {
   return res.result?.status; // true | false | "rate_limited" | "private"
 }
 
+// Export for Node test environment (jest) if available
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isRepoUrl, getActiveConfigMetrics };
+}
+
 async function getCacheFromBackground(key) {
   return ext.sendMessage({ action: "getCache", key });
 }
