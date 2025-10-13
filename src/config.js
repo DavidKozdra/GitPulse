@@ -79,39 +79,25 @@ const defaultConfig = {
 // Load config via background
 // ---------------------------
 async function loadConfig() {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: "getConfig" }, (response) => {
-      const stored = response?.config;
-      if (stored) {
-        resolve({ ...defaultConfig, ...stored });
-      } else {
-
-        console.log("FAIL")
-        resolve({ ...defaultConfig });
-      }
-    });
-  });
+  const response = await ext.sendMessage({ action: "getConfig" });
+  const stored = response?.config;
+  if (stored) return { ...defaultConfig, ...stored };
+  return { ...defaultConfig };
 }
 
 // ---------------------------
 // Save config via background
 // ---------------------------
 async function saveConfig(config) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: "setConfig", config }, (response) => {
-      resolve(response?.success || false);
-    });
-  });
+  const response = await ext.sendMessage({ action: "setConfig", config });
+  return response?.success || false;
 }
 
 
 
 async function resetConfig() {
   const configCopy = JSON.parse(JSON.stringify(defaultConfig)); // deep copy
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ action: "setConfig", config: configCopy }, (response) => {
-      resolve(response?.success || false);
-    });
-  });
+  const response = await ext.sendMessage({ action: "setConfig", config: configCopy });
+  return response?.success || false;
 }
 

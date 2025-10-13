@@ -1,20 +1,12 @@
+// src/main.js
+// Content script to check repository activity status and mark links/pages accordingly
 var config;
 var rate_limited = false
 
-// Default configuration
-const defaultConfig = {
-  emoji_active: { active: true, value: "✅" },
-  emoji_inactive: { active: true, value: "❌" }
-};
 
 // ---------- Helpers ----------
 async function isRepoActive(url) {
-  const res = await new Promise(resolve => {
-    chrome.runtime.sendMessage(
-      { action: "fetchRepoStatus", url },
-      (response) => resolve(response)
-    );
-  });
+  const res = await ext.sendMessage({ action: "fetchRepoStatus", url });
   if (!res || res.ok === false) {
     console.warn("[Repo check] background error", res?.error);
     return false; // fail closed
@@ -24,15 +16,11 @@ async function isRepoActive(url) {
 
 
 async function getCacheFromBackground(key) {
-  return new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "getCache", key }, (response) => resolve(response));
-  });
+  return ext.sendMessage({ action: "getCache", key });
 }
 
 async function setCacheInBackground(key, value) {
-  return new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "setCache", key, value }, (response) => resolve(response));
-  });
+  return ext.sendMessage({ action: "setCache", key, value });
 }
 
 function getActiveConfigMetrics() {
@@ -188,7 +176,7 @@ function createBanner(status) {
   });
   configLink.onclick = e => {
     e.preventDefault();
-    chrome.runtime.sendMessage({ action: "open_popup" });
+  ext.sendMessage({ action: "open_popup" });
   };
 
   const closeBtn = document.createElement("button");
@@ -291,11 +279,8 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
 }
 
 (async () => {
-  config = await new Promise(resolve => {
-    chrome.storage.local.get(["repoCheckerConfig"], ({ repoCheckerConfig }) => {
-      resolve(repoCheckerConfig || defaultConfig);
-    });
-  });
+  const stored = await ext.storage.local.get(["repoCheckerConfig"]);
+  config = (stored && stored.repoCheckerConfig) ? stored.repoCheckerConfig : defaultConfig;
 
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);

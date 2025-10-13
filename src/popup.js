@@ -5,38 +5,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------
   // Storage helpers
   // ---------------------------
-  const loadPAT = () => new Promise(resolve => {
-    chrome.storage.local.get(["githubPAT"], ({ githubPAT }) => resolve(githubPAT || ""));
-  });
+  const loadPAT = () => ext.storage.local.get(["githubPAT"]).then(({ githubPAT } = {}) => githubPAT || "");
 
-  const savePAT = (pat) => new Promise(resolve => {
-    chrome.storage.local.set({ githubPAT: pat }, () => resolve(true));
-  });
+  const savePAT = (pat) => ext.storage.local.set({ githubPAT: pat }).then(() => true);
 
-  const loadConfig = () => new Promise(resolve => {
-    chrome.storage.local.get(["repoCheckerConfig"], ({ repoCheckerConfig }) => {
-      // Merge stored config with defaultConfig
-      const mergedConfig = { ...defaultConfig };
-      if (repoCheckerConfig) {
-        Object.keys(repoCheckerConfig).forEach(key => {
-          if (mergedConfig[key]) {
-            mergedConfig[key] = { ...mergedConfig[key], ...repoCheckerConfig[key] };
-          } else {
-            mergedConfig[key] = repoCheckerConfig[key]; // in case of new fields
-          }
-        });
-      }
-      resolve(mergedConfig);
-    });
-  });
+  const loadConfig = async () => {
+    const { repoCheckerConfig } = await ext.storage.local.get(["repoCheckerConfig"]);
+    const mergedConfig = { ...defaultConfig };
+    if (repoCheckerConfig) {
+      Object.keys(repoCheckerConfig).forEach(key => {
+        if (mergedConfig[key]) mergedConfig[key] = { ...mergedConfig[key], ...repoCheckerConfig[key] };
+        else mergedConfig[key] = repoCheckerConfig[key];
+      });
+    }
+    return mergedConfig;
+  };
 
-  const saveConfig = (newConfig) => new Promise(resolve => {
-    chrome.storage.local.set({ repoCheckerConfig: newConfig }, () => resolve(true));
-  });
+  const saveConfig = (newConfig) => ext.storage.local.set({ repoCheckerConfig: newConfig }).then(() => true);
 
-  const clearRepoCache = () => new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "clearCache" }, (response) => resolve(response));
-  });
+  const clearRepoCache = () => ext.sendMessage({ action: "clearCache" });
 
   // ---------------------------
   // Load config and PAT
