@@ -22,11 +22,11 @@
       "js": [
         "compat.js",
         "config.js",
-        "main.helpers.js",
-        "main.banner.js",
-        "main.links.js",
-        "main.detect.js",
-        "main.bootstrap.js",
+        "content/main.helpers.js",
+        "content/main.banner.js",
+        "content/main.links.js",
+        "content/main.detect.js",
+        "content/main.bootstrap.js",
         "main.js"
       ],
       "run_at": "document_idle"
