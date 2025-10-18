@@ -123,10 +123,58 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
   );
 
-  const isActive = isArchivedOk && openPrsOk && lastClosedPrOk && pushOk;
+  // 5) Issue activity recency
+  let issuesActivityOk = true;
+  if (Number.isFinite(rules.max_issues_update_time)) {
+    const issuesRes = await fetch(
+      `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue&sort=updated&order=desc&per_page=1`,
+      { headers }
+    );
+    if (issuesRes.status === 403) return { status: "rate_limited" };
+    if (!issuesRes.ok) throw new Error(`GitHub search issues failed: ${issuesRes.status}`);
+    const issues = await issuesRes.json();
+    const lastIssueUpdated = issues?.items?.[0]?.updated_at;
+    issuesActivityOk = withinDays(lastIssueUpdated, rules.max_issues_update_time);
+  }
+
+  // 6) Last release recency
+  let releaseOk = true;
+  if (Number.isFinite(rules.max_days_since_last_release)) {
+    const relRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/releases?per_page=1`,
+      { headers }
+    );
+    if (relRes.status === 403) return { status: "rate_limited" };
+    if (!relRes.ok && relRes.status !== 404) throw new Error(`GitHub releases failed: ${relRes.status}`);
+    let lastReleaseAt = null;
+    if (relRes.ok) {
+      const rels = await relRes.json();
+      const rel = rels?.[0];
+      lastReleaseAt = rel?.published_at || rel?.created_at;
+    }
+    // If no releases, consider not OK only if rule is active
+    releaseOk = withinDays(lastReleaseAt, rules.max_days_since_last_release);
+  }
+
+  // 7) Oldest open issue age
+  let openIssueAgeOk = true;
+  if (Number.isFinite(rules.max_open_issue_age)) {
+    const oldestOpenRes = await fetch(
+      `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue+is:open&sort=created&order=asc&per_page=1`,
+      { headers }
+    );
+    if (oldestOpenRes.status === 403) return { status: "rate_limited" };
+    if (!oldestOpenRes.ok) throw new Error(`GitHub oldest open issue failed: ${oldestOpenRes.status}`);
+    const oldest = await oldestOpenRes.json();
+    const oldestCreated = oldest?.items?.[0]?.created_at;
+    // Pass if there are no open issues (items empty) or if oldest is within threshold
+    openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
+  }
+
+  const isActive = isArchivedOk && openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, isArchivedOk, openPrsOk, lastClosedPrOk }
+    details: { pushOk, isArchivedOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
   };
 }
 
@@ -196,6 +244,21 @@ async function handleMessage(message, sender, sendResponse) {
         await clearCache();
         sendResponse({ success: true });
         return;
+      }
+
+      case "open_popup": {
+        try {
+          const url = chrome.runtime.getURL("popup.html");
+          chrome.tabs.create({ url, active: true }, () => {
+            const err = chrome.runtime.lastError; // read to avoid unchecked lastError
+            // ignore error; still respond OK to avoid breaking UX
+            sendResponse({ ok: true });
+          });
+          return; // async response
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e) });
+          return;
+        }
       }
 
       case "setPAT": {
