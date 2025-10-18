@@ -18,8 +18,13 @@
   }
 
   if (onRepoPage) {
-    const status = await isRepoActive(currentUrl);
-    createBanner(status);
+    // If the page itself indicates a private repo, show a private banner
+    if (isGithubRepoPrivate()) {
+      createBanner('private');
+    } else {
+      const status = await isRepoActive(currentUrl);
+      createBanner(status);
+    }
   } else {
     markRepoLinks();
     const observer = new MutationObserver(markRepoLinks);

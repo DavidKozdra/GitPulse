@@ -34,11 +34,11 @@ function createBanner(status) {
   let emoji = "";
 
   if (isRateLimited) {
-    emoji = "⏳";
+    emoji = (config.emoji_rate_limited?.active ? config.emoji_rate_limited.value : "⏳");
     mainMessage = "Rate limit hit — Results temporarily inactive";
     bgColor = "#f57c00";
   } else if (isPrivate) {
-    emoji = "🔒";
+    emoji = (config.emoji_private?.active ? config.emoji_private.value : "🔒");
     mainMessage = "Private Repository";
     bgColor = "#555";
   } else if (isActive) {

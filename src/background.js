@@ -5,6 +5,7 @@ console.log("GitPulse SW started", chrome.runtime?.id);
 // Constants & helpers
 // ---------------------------
 const CACHE_PREFIX = "repoCache:";
+const CACHE_SCHEMA_VERSION = 2;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;   // 24h for normal entries
 const RATE_TTL_MS  = 1000 * 60 * 60 * 2;    // 2h for rate-limited entries
 const CONFIG_KEY   = "repoCheckerConfig";   // unify on the same key used by popup.js
@@ -46,6 +47,7 @@ async function readCache(key) {
   const full = CACHE_PREFIX + key;
   const item = (await getLocal([full]))[full];
   if (!item) return null;
+  if (item.v !== CACHE_SCHEMA_VERSION) return null;
 
   const age = now() - (item.checkedAt || 0);
   const ttl = item.isActive === "rate_limited" ? RATE_TTL_MS : CACHE_TTL_MS;
@@ -54,7 +56,7 @@ async function readCache(key) {
 }
 async function writeCache(key, value) {
   const full = CACHE_PREFIX + key;
-  return setLocal({ [full]: { ...value, checkedAt: now() } });
+  return setLocal({ [full]: { ...value, checkedAt: now(), v: CACHE_SCHEMA_VERSION } });
 }
 async function clearCache() {
   const all = await getLocal(null);
@@ -82,6 +84,11 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   // 1) repo metadata
   const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
   if (repoRes.status === 403) return { status: "rate_limited" };
+  if (repoRes.status === 404 || repoRes.status === 401) {
+    // Unauthenticated access to a private repo is surfaced as 404 by GitHub.
+    // Treat 401 similarly when token lacks access.
+    return { status: "private" };
+  }
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
   const repoData = await repoRes.json();
 

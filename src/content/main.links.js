@@ -66,17 +66,28 @@ function annotateLink(link, status) {
   if (link.dataset.repoChecked) return;
   link.dataset.repoChecked = 'true';
   const mark = document.createElement('span');
-  mark.textContent =
-    status === 'private' ? '🔒 ' :
-    status === 'rate_limited' ? '⏳ ' :
-    status === true ? (config.emoji_active.active ? `${config.emoji_active.value} ` : '') :
-    status === false ? (config.emoji_inactive.active ? `${config.emoji_inactive.value} ` : '') :
-    '';
+  const emojiPrivate = config.emoji_private?.active ? (config.emoji_private.value || '🔒') : '🔒';
+  const emojiRate = config.emoji_rate_limited?.active ? (config.emoji_rate_limited.value || '⏳') : '⏳';
+  const emojiActive = config.emoji_active?.active ? (config.emoji_active.value || '✅') : '✅';
+  const emojiInactive = config.emoji_inactive?.active ? (config.emoji_inactive.value || '❌') : '❌';
+
+  const icon =
+    status === 'private' ? emojiPrivate :
+    status === 'rate_limited' ? emojiRate :
+    status === true ? emojiActive :
+    status === false ? emojiInactive : '';
+  mark.textContent = icon ? `${icon} ` : '';
   mark.style.color =
     status === 'private' ? '#555' :
     status === 'rate_limited' ? '#f57c00' :
     status === true ? 'green' :
     'red';
+  mark.style.marginRight = '4px';
+  mark.setAttribute('aria-hidden', 'true');
+  if (status === true) mark.title = 'Active repository';
+  else if (status === false) mark.title = 'Inactive repository';
+  else if (status === 'private') mark.title = 'Private repository';
+  else if (status === 'rate_limited') mark.title = 'Rate limited';
   try { link.prepend(mark); } catch (e) { /* ignore prepend failures */ }
 }
 

@@ -82,6 +82,20 @@ const defaultConfig = {
     type: "text",
     active: true,
     order: 91
+  },
+  emoji_private: {
+    name: "Emoji for private repo",
+    value: "🔒",
+    type: "text",
+    active: true,
+    order: 92
+  },
+  emoji_rate_limited: {
+    name: "Emoji for rate limited",
+    value: "⏳",
+    type: "text",
+    active: true,
+    order: 93
   }
 };
 

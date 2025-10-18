@@ -31,3 +31,19 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
   }
   return false;
 }
+
+// Best-effort detection of a private GitHub repository from the DOM
+function isGithubRepoPrivate() {
+  try {
+    // Look for a label with text "Private" near the repo title
+    const labels = document.querySelectorAll('span.Label, span.Label--secondary, span[data-view-component="true"].Label');
+    for (const el of labels) {
+      const text = (el.textContent || '').trim().toLowerCase();
+      if (text === 'private') return true;
+    }
+    // Fallback: lock icon with accessible label
+    const lockEl = document.querySelector('svg[aria-label="Private"]');
+    if (lockEl) return true;
+  } catch {}
+  return false;
+}
