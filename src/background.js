@@ -216,7 +216,16 @@ async function handleMessage(message, sender, sendResponse) {
       }
 
       case "open-url": {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabs = await new Promise((resolve) => {
+          try {
+            chrome.tabs.query({ active: true, currentWindow: true }, (t) => {
+              const _ = chrome.runtime?.lastError;
+              resolve(Array.isArray(t) ? t : []);
+            });
+          } catch (e) {
+            resolve([]);
+          }
+        });
         if (!tabs?.length || !tabs[0]?.url) {
           sendResponse({ ok: false, error: "No active tab URL available" });
           return;

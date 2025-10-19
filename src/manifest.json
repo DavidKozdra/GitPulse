@@ -5,7 +5,6 @@
   "description": "a Chrome extension to show activity for repo links before you click them.",
   "permissions": [
     "activeTab",
-    "scripting",
     "storage",
     "tabs"
   ],
@@ -13,9 +12,6 @@
     "https://api.github.com/*",
     "https://github.com/*"
   ],
-  "externally_connectable": {
-    "matches": ["*://github.com/*", "*://*.github.com/*"]
-  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -34,7 +30,7 @@
   ],
   "background": {
     "service_worker": "background.js",
-    "type": "module"
+    "scripts": ["background.js"] 
   },
   "action": {
     "default_popup": "popup.html",
