@@ -5,38 +5,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------
   // Storage helpers
   // ---------------------------
-  const loadPAT = () => new Promise(resolve => {
-    chrome.storage.local.get(["githubPAT"], ({ githubPAT }) => resolve(githubPAT || ""));
-  });
+  const loadPAT = () => ext.storage.local.get(["githubPAT"]).then(({ githubPAT } = {}) => githubPAT || "");
 
-  const savePAT = (pat) => new Promise(resolve => {
-    chrome.storage.local.set({ githubPAT: pat }, () => resolve(true));
-  });
+  const savePAT = (pat) => ext.storage.local.set({ githubPAT: pat }).then(() => true);
 
-  const loadConfig = () => new Promise(resolve => {
-    chrome.storage.local.get(["repoCheckerConfig"], ({ repoCheckerConfig }) => {
-      // Merge stored config with defaultConfig
-      const mergedConfig = { ...defaultConfig };
-      if (repoCheckerConfig) {
-        Object.keys(repoCheckerConfig).forEach(key => {
-          if (mergedConfig[key]) {
-            mergedConfig[key] = { ...mergedConfig[key], ...repoCheckerConfig[key] };
-          } else {
-            mergedConfig[key] = repoCheckerConfig[key]; // in case of new fields
-          }
-        });
-      }
-      resolve(mergedConfig);
-    });
-  });
+  const loadConfig = async () => {
+    const { repoCheckerConfig } = await ext.storage.local.get(["repoCheckerConfig"]);
+    const mergedConfig = { ...defaultConfig };
+    if (repoCheckerConfig) {
+      Object.keys(repoCheckerConfig).forEach(key => {
+        if (mergedConfig[key]) mergedConfig[key] = { ...mergedConfig[key], ...repoCheckerConfig[key] };
+        else mergedConfig[key] = repoCheckerConfig[key];
+      });
+    }
+    return mergedConfig;
+  };
 
-  const saveConfig = (newConfig) => new Promise(resolve => {
-    chrome.storage.local.set({ repoCheckerConfig: newConfig }, () => resolve(true));
-  });
+  const saveConfig = (newConfig) => ext.storage.local.set({ repoCheckerConfig: newConfig }).then(() => true);
 
-  const clearRepoCache = () => new Promise(resolve => {
-    chrome.runtime.sendMessage({ action: "clearCache" }, (response) => resolve(response));
-  });
+  const clearRepoCache = () => ext.sendMessage({ action: "clearCache" });
 
   // ---------------------------
   // Load config and PAT
@@ -52,7 +39,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------
   const sortedKeys = Object.keys(config)
     .filter(key => config[key] && config[key].value !== undefined)
-    .sort((a, b) => config[a].order - config[b].order);
+    .sort((a, b) => (config[a].order ?? 999) - (config[b].order ?? 999));
 
   sortedKeys.forEach(key => {
     const field = config[key];
@@ -70,13 +57,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     label.textContent = field.name || key;
     label.style.flex = "1";
 
-    // Input
-    const input = document.createElement("input");
+    // Value input
+    let input;
+    if (field.type === "boolean") {
+      input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!field.value;
+      input.style.flex = "0";
+      input.style.marginLeft = "8px";
+    } else {
+      input = document.createElement("input");
+      input.type = field.type === "number" ? "number" : "text";
+      input.value = field.value;
+      input.style.flex = "1";
+      if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
+    }
     input.id = key;
-    input.type = field.type === "number" ? "number" : "text";
-    input.value = field.value;
-    input.style.flex = "1";
-    if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
 
     // Toggle checkbox
     const toggle = document.createElement("input");
@@ -108,8 +104,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     sortedKeys.forEach(key => {
       const field = configToApply[key];
       const input = document.getElementById(key);
-      const toggle = input?.nextSibling?.nextSibling; // assumes structure: label -> input -> toggle
-      if (input) input.value = field.value;
+      let toggle;
+      // Structure: label -> input -> toggle
+      if (input) toggle = input.nextSibling?.nextSibling;
+      if (!input) return;
+      if (field.type === "boolean") input.checked = !!field.value;
+      else input.value = field.value;
       if (toggle && toggle.type === "checkbox") toggle.checked = field.active;
     });
   };
@@ -126,6 +126,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (field.type === "number") {
         const val = Number(input.value);
         newConfig[key] = { ...field, value: isNaN(val) ? field.value : val };
+      } else if (field.type === "boolean") {
+        newConfig[key] = { ...field, value: !!input.checked };
       } else {
         newConfig[key] = { ...field, value: input.value || field.value };
       }
@@ -144,12 +146,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const confirmReset = confirm("Are you sure you want to reset your configuration to the default settings?");
     if (!confirmReset) return;
 
-    const defaultConfigCopy = await resetConfig(); // from config.js
+    const defaultConfigCopy = await resetConfig(); // from config.js now returns the defaults
     await saveConfig(defaultConfigCopy);           // persist defaults
     patInput.value = "";                           // clear PAT
     await clearRepoCache();
     alert("✅ Configuration has been reset to defaults.");
-
 
     updateUI(defaultConfigCopy);                   // update form inputs
   });

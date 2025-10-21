@@ -2,17 +2,35 @@
   "manifest_version": 3,
   "name": "GitPulse",
   "version": "1.1",
-  "description": "a chrome extension to inform users of the activity of repo links before you click them.",
-  "permissions": ["activeTab", "scripting", "storage"],
- "content_scripts": [
+  "description": "a Chrome extension to show activity for repo links before you click them.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://github.com/*"
+  ],
+  "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["config.js","main.js"],
+      "js": [
+        "compat.js",
+        "config.js",
+        "content/main.helpers.js",
+        "content/main.banner.js",
+        "content/main.links.js",
+        "content/main.detect.js",
+        "content/main.bootstrap.js",
+        "main.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"] 
   },
   "action": {
     "default_popup": "popup.html",

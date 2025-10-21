@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    - name: Install dependencies
+      run: |
+        cd src
+        npm ci
+    - name: Run lint
+      run: |
+        cd src
+        npx eslint --ext .js src || true
+    - name: Run tests
+      run: |
+        cd src
+        npm test
