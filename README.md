@@ -51,7 +51,7 @@ https://chromewebstore.google.com/detail/gitpulse/fiamhceclfnbckgpnmpkhldgbdhiam
 * [x] Banner to display status on the page. 
 * [X] Configurable rule system. settings pop up and editiable rules. 
 * [x] web searches or even all github urls displayed also checked remotly. 
-* [ ] Browser support beyond Chrome (Firefox, Edge).
+* [x] Browser support beyond Chrome (Firefox, Edge).
 * [x] Gitlab and npm and other repo systems maybe even docker ? 
 * [X] Dark mode support for the banner and settings system.
 
