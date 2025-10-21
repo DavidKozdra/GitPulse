@@ -92,10 +92,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
   const repoData = await repoRes.json();
 
-  // Optional rule: require not archived
-  const isArchivedOk = (rules.require_not_archived === undefined)
-    ? true
-    : !repoData.archived;
+
 
   // 2) Open PR threshold (use search API for total_count)
   let openPrsOk = true;
@@ -178,10 +175,10 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
   }
 
-  const isActive = isArchivedOk && openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
+  const isActive =  openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, isArchivedOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
+    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
   };
 }
 

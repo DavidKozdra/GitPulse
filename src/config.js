@@ -1,14 +1,6 @@
 // ---------- Configuration ----------
 const CONFIG_KEY = "config";
 const defaultConfig = {
-  // Rules used by background.js
-  require_not_archived: {
-    name: "Require repository not archived",
-    value: true,
-    type: "boolean",
-    active: true,
-    order: 1
-  },
   max_repo_update_time: {
     name: "Max days since last commit",
     value: 365,
