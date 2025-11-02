@@ -20,7 +20,7 @@ jobs:
     - name: Install dependencies
       run: |
         cd src
-        npm ci
+        npm install
     - name: Run lint
       run: |
         cd src
