@@ -50,6 +50,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     formGroup.style.alignItems = "center";
     formGroup.style.justifyContent = "space-between";
     formGroup.style.flexDirection = "row";
+    formGroup.style.position = "relative";
 
     // Label
     const label = document.createElement("label");
@@ -83,6 +84,86 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     formGroup.appendChild(label);
     formGroup.appendChild(input);
+
+    // Emoji picker for emoji_* fields
+    if (key.startsWith("emoji_")) {
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "emoji-btn emoji-trigger";
+      trigger.textContent = input.value && input.value.trim() ? input.value : "😀";
+      Object.assign(trigger.style, {
+        width: "auto",
+        display: "inline-flex",
+        marginTop: "0",
+        marginLeft: "8px",
+        padding: "6px 8px",
+        flex: "0 0 auto",
+        alignItems: "center",
+        justifyContent: "center"
+      });
+
+      const picker = document.createElement("div");
+      picker.className = "emoji-picker";
+      picker.style.display = "none";
+
+      const searchWrap = document.createElement("div");
+      searchWrap.className = "emoji-search-wrap";
+      const search = document.createElement("input");
+      search.type = "text";
+      search.placeholder = "Search emoji...";
+      search.className = "emoji-search";
+      searchWrap.appendChild(search);
+
+      const grid = document.createElement("div");
+      grid.className = "emoji-grid";
+
+      picker.appendChild(searchWrap);
+      picker.appendChild(grid);
+      formGroup.appendChild(trigger);
+      formGroup.appendChild(picker);
+
+      function openPicker() {
+        picker.style.display = "block";
+        renderGrid("");
+        search.focus();
+        document.addEventListener("click", outsideClose, { capture: true });
+      }
+      function closePicker() {
+        picker.style.display = "none";
+        document.removeEventListener("click", outsideClose, { capture: true });
+      }
+      function togglePicker() {
+        if (picker.style.display === "none") openPicker(); else closePicker();
+      }
+      function outsideClose(e) {
+        if (!picker.contains(e.target) && e.target !== trigger) {
+          closePicker();
+        }
+      }
+      function renderGrid(q) {
+        grid.innerHTML = "";
+        const data = (window.EmojiData && typeof window.EmojiData.search === "function")
+          ? window.EmojiData.search(q, 250)
+          : [];
+        data.forEach(item => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "emoji-choice";
+          btn.title = item.name || "";
+          btn.textContent = item.char;
+          btn.addEventListener("click", () => {
+            input.value = item.char;
+            trigger.textContent = item.char;
+            closePicker();
+          });
+          grid.appendChild(btn);
+        });
+      }
+
+      trigger.addEventListener("click", (e) => { e.stopPropagation(); togglePicker(); });
+      search.addEventListener("input", () => renderGrid(search.value));
+    }
+
     formGroup.appendChild(toggle);
 
     formsContainer.appendChild(formGroup);
