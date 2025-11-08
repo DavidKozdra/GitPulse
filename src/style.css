@@ -184,3 +184,64 @@ button:hover { background: var(--button-hover-bg); }
 .clearBtn {
   background-color: rgb(180, 53, 53);
 }
+
+/* -----------------------------------
+   EMOJI PICKER
+----------------------------------- */
+.emoji-btn {
+  width: auto !important;
+  margin-top: 0 !important;
+  background: var(--button-bg);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.emoji-picker {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 260px;
+  background: var(--card-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  padding: 8px;
+  z-index: 10000;
+}
+
+.emoji-search {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  outline: none;
+  background: var(--input-bg);
+  color: var(--card-text);
+  margin-bottom: 8px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.emoji-choice {
+  width: auto !important;
+  margin-top: 0 !important;
+  padding: 6px !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--card-text) !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+}
+
+.emoji-choice:hover {
+  border-color: var(--input-border) !important;
+  background: var(--input-bg) !important;
+}
