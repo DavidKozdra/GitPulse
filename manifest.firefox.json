@@ -1,0 +1,67 @@
+﻿{
+    "manifest_version":  3,
+    "name":  "GitPulse",
+    "version":  "1.31",
+    "description":  "A Chrome extension to show activity for repo links before you click them.",
+    "permissions":  [
+                        "activeTab",
+                        "storage",
+                        "tabs"
+                    ],
+    "host_permissions":  [
+                             "https://api.github.com/*",
+                             "https://github.com/*"
+                         ],
+    "content_scripts":  [
+                            {
+                                "matches":  [
+                                                "\u003call_urls\u003e"
+                                            ],
+                                "js":  [
+                                           "GitPulse/src/compat.js",
+                                           "GitPulse/src/config.js",
+                                           "GitPulse/src/content/main.helpers.js",
+                                           "GitPulse/src/content/main.banner.js",
+                                           "GitPulse/src/content/main.links.js",
+                                           "GitPulse/src/content/main.detect.js",
+                                           "GitPulse/src/content/main.bootstrap.js",
+                                           "GitPulse/src/main.js"
+                                       ],
+                                "run_at":  "document_idle"
+                            }
+                        ],
+    "background":  {
+                       "scripts":  [
+                                       "GitPulse/src/background.js"
+                                   ]
+                   },
+    "action":  {
+                   "default_popup":  "GitPulse/src/popup.html",
+                   "default_icon":  {
+                                        "16":  "GitPulse/src/icons/icon-16.png",
+                                        "32":  "GitPulse/src/icons/icon-32.png",
+                                        "48":  "GitPulse/src/icons/icon-48.png",
+                                        "128":  "GitPulse/src/icons/icon-128.png"
+                                    }
+               },
+    "icons":  {
+                  "16":  "GitPulse/src/icons/icon-16.png",
+                  "32":  "GitPulse/src/icons/icon-32.png",
+                  "48":  "GitPulse/src/icons/icon-48.png",
+                  "128":  "GitPulse/src/icons/icon-128.png"
+              },
+    "browser_specific_settings":  {
+                                      "gecko":  {
+                                                    "id":  "{0409c39e-43f7-4de6-8945-ecbc5fc72713}",
+                                                    "strict_min_version":  "109.0",
+                                                    "data_collection_permissions":  {
+                                                                                        "required":  [
+                                                                                                         "websiteContent"
+                                                                                                     ],
+                                                                                        "optional":  [
+
+                                                                                                     ]
+                                                                                    }
+                                                }
+                                  }
+}
