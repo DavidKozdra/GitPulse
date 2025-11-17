@@ -1,5 +1,19 @@
 // main.bootstrap.js
-(async () => {
+(async function init() {
+  await bootstrap();
+
+  // Detect GitHub SPA navigations (back/forward, repo <-> search, etc.)
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    const currentUrl = location.href;
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl;
+      bootstrap();
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+
+async function bootstrap() {
   const stored = await ext.storage.local.get(["repoCheckerConfig"]);
   config = (stored && stored.repoCheckerConfig) ? stored.repoCheckerConfig : defaultConfig;
 
@@ -9,25 +23,25 @@
   if (looksLikeGithubRepoUrl(currentUrl)) {
     const confirmed = await waitForGithubRepoIndicators();
     if (confirmed) {
-      console.log("[Repo detection] Confirmed GitHub repo page");
       onRepoPage = true;
     } else {
-      console.log("[Repo detection] No repo indicators found, not a repo page");
       onRepoPage = false;
     }
   }
 
+  // Cleanup any previous injected marks or banners before re-injecting
+  document.querySelectorAll(".repo-checker-banner, .repo-checker-mark").forEach(el => el.remove());
+
   if (onRepoPage) {
-    // If the page itself indicates a private repo, show a private banner
+    // Show banner for repo pages
     if (isGithubRepoPrivate()) {
-      createBanner('private');
+      createBanner("private");
     } else {
       const status = await isRepoActive(currentUrl);
       createBanner(status);
     }
   } else {
-    markRepoLinks();
-    const observer = new MutationObserver(markRepoLinks);
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Mark repo links on search/discovery pages
+    await markRepoLinks();
   }
-})();
+}

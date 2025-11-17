@@ -6,4 +6,4 @@
 // - main.bootstrap.js
 // The content_scripts order in `manifest.json` was updated to load these.
 
-console.log('Loaded main shim; real logic moved to smaller modules.');
+//'Loaded main shim; real logic moved to smaller modules.'

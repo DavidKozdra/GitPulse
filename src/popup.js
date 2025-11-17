@@ -5,9 +5,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------
   // Storage helpers
   // ---------------------------
-  const loadPAT = () => ext.storage.local.get(["githubPAT"]).then(({ githubPAT } = {}) => githubPAT || "");
+  const loadPAT = () =>
+    ext.storage.local.get(["githubPAT"]).then(({ githubPAT } = {}) => githubPAT || "");
 
-  const savePAT = (pat) => ext.storage.local.set({ githubPAT: pat }).then(() => true);
+  const savePAT = (pat) =>
+    ext.storage.local.set({ githubPAT: pat }).then(() => true);
 
   const loadConfig = async () => {
     const { repoCheckerConfig } = await ext.storage.local.get(["repoCheckerConfig"]);
@@ -21,15 +23,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     return mergedConfig;
   };
 
-  const saveConfig = (newConfig) => ext.storage.local.set({ repoCheckerConfig: newConfig }).then(() => true);
+  const saveConfig = (newConfig) =>
+    ext.storage.local.set({ repoCheckerConfig: newConfig }).then(() => true);
 
   const clearRepoCache = () => ext.sendMessage({ action: "clearCache" });
 
   // ---------------------------
-  // Load config and PAT
+  // Load config, PAT, and recent emoji
   // ---------------------------
   const config = await loadConfig();
   const pat = await loadPAT();
+
+  const emojiRecentKey = "emojiRecents";
+  let recentEmojis = [];
+  try {
+    const stored = await ext.storage.local.get([emojiRecentKey]);
+    const value = stored && stored[emojiRecentKey];
+    if (Array.isArray(value)) {
+      recentEmojis = value.filter(ch => typeof ch === "string");
+    }
+  } catch (_) {
+    recentEmojis = [];
+  }
+
+  const recordEmojiRecent = (char) => {
+    if (!char) return;
+    recentEmojis = [char, ...recentEmojis.filter(c => c !== char)].slice(0, 24);
+    try {
+      ext.storage.local.set({ [emojiRecentKey]: recentEmojis });
+    } catch (_) {
+      // best-effort; picker still works without persistence
+    }
+  };
 
   // Clear container
   formsContainer.innerHTML = "";
@@ -90,7 +115,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const trigger = document.createElement("button");
       trigger.type = "button";
       trigger.className = "emoji-btn emoji-trigger";
-      trigger.textContent = input.value && input.value.trim() ? input.value : "😀";
+      trigger.textContent = input.value && input.value.trim() ? input.value : "🙂";
       Object.assign(trigger.style, {
         width: "auto",
         display: "inline-flex",
@@ -142,9 +167,35 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       function renderGrid(q) {
         grid.innerHTML = "";
-        const data = (window.EmojiData && typeof window.EmojiData.search === "function")
-          ? window.EmojiData.search(q, 250)
-          : [];
+        const hasSearch = window.EmojiData && typeof window.EmojiData.search === "function";
+        const query = (q || "").trim();
+
+        const baseData = hasSearch ? window.EmojiData.search(query, 250) : [];
+        let data = baseData;
+
+        // When no query, show recently used emoji first
+        if (!query && Array.isArray(recentEmojis) && recentEmojis.length && window.EmojiData && Array.isArray(window.EmojiData.list)) {
+          const byChar = new Map();
+          window.EmojiData.list.forEach(item => {
+            if (item && typeof item.char === "string" && !byChar.has(item.char)) {
+              byChar.set(item.char, item);
+            }
+          });
+
+          const recentItems = [];
+          const seenRecent = new Set();
+          for (const ch of recentEmojis) {
+            if (seenRecent.has(ch)) continue;
+            seenRecent.add(ch);
+            const item = byChar.get(ch) || { char: ch, name: "" };
+            recentItems.push(item);
+          }
+
+          const recentSet = new Set(recentEmojis);
+          const rest = baseData.filter(item => !recentSet.has(item.char));
+          data = [...recentItems, ...rest];
+        }
+
         data.forEach(item => {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -154,6 +205,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           btn.addEventListener("click", () => {
             input.value = item.char;
             trigger.textContent = item.char;
+            recordEmojiRecent(item.char);
             closePicker();
           });
           grid.appendChild(btn);
@@ -236,3 +288,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateUI(defaultConfigCopy);                   // update form inputs
   });
 });
+
