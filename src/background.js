@@ -182,24 +182,66 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   };
 }
 
+// Supabase config for unauthenticated GitHub status checks
+const SUPABASE_GITHUB_STATUS_URL =
+  "https://wmzfmdgkixsgmhmzpwlq.supabase.co/functions/v1/quick-responder";
+
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtemZtZGdraXhzZ21obXpwd2xxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2OTA5MTcsImV4cCI6MjA3ODI2NjkxN30.FWl5v15JqRVc8kfKEv9s-BjSEUx4wZBW2NiH1N18zP8";
+
+// Call the Supabase edge function when the user has no PAT.
+// It returns the same shape as fetchGithubRepoStatus: { status, details: {...} }
+async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
+  const resp = await fetch(SUPABASE_GITHUB_STATUS_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ owner, repo, rules }),
+  });
+
+  if (!resp.ok) {
+    // You can get fancy here if you want (map 401/500/etc),
+    // but throwing is fine for now.
+    throw new Error(`Supabase github-status failed: ${resp.status}`);
+  }
+
+  // Supabase function already returns:
+  // { status: true|false|"rate_limited"|"private", details: {...} }
+  return resp.json();
+}
+
+
 // Add other ecosystems similarly (GitLab, Bitbucket, npm, etc.)
 
 async function fetchRepoStatusByUrl(rawUrl, rules) {
   const { hostname, pathname } = new URL(rawUrl);
   const parts = pathname.split("/").filter(Boolean);
-  const pat = await getPAT();
+  const pat = await getPAT(); // existing function that returns the user's PAT or null
 
   switch (hostname) {
     case "github.com": {
       if (parts.length < 2) throw new Error("Invalid GitHub URL");
       const [owner, repo] = parts;
-      return fetchGithubRepoStatus({ owner, repo }, pat, rules);
+
+      if (pat) {
+        // Authenticated user → use GitHub directly with their PAT
+        return fetchGithubRepoStatus({ owner, repo }, pat, rules);
+      }
+
+
+      console.log("no pat use the server")
+      // No PAT → use Supabase edge function (server-side token)
+      return fetchGithubRepoStatusViaSupabase({ owner, repo }, rules);
     }
+
     default:
       // No integration → assume active to avoid blocking
       return { status: true };
   }
 }
+
 
 // ---------------------------
 // Unified message handler
