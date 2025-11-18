@@ -261,7 +261,14 @@ async function handleMessage(message, sender, sendResponse) {
 
       case "open_popup": {
         try {
-          const url = chrome.runtime.getURL("popup.html");
+          const manifest = (chrome.runtime && typeof chrome.runtime.getManifest === "function")
+            ? chrome.runtime.getManifest()
+            : {};
+          const popupPath =
+            (manifest.action && manifest.action.default_popup) ||
+            (manifest.browser_action && manifest.browser_action.default_popup) ||
+            "popup.html";
+          const url = chrome.runtime.getURL(popupPath);
           chrome.tabs.create({ url, active: true }, () => {
             const err = chrome.runtime.lastError; // read to avoid unchecked lastError
             // ignore error; still respond OK to avoid breaking UX
