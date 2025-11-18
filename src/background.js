@@ -91,6 +91,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   }
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
   const repoData = await repoRes.json();
+  const isArchived = !!repoData.archived;
 
 
 
@@ -175,10 +176,34 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
   }
 
-  const isActive =  openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
+  const isActive = !isArchived && openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
+    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk, isArchived }
+  };
+}
+
+// Minimal Codeberg status fetcher, mirroring core GitHub logic where fields exist.
+// Uses the public Gitea-compatible API: https://codeberg.org/api/v1/repos/{owner}/{repo}
+async function fetchCodebergRepoStatus({ owner, repo }, rules) {
+  const repoRes = await fetch(`https://codeberg.org/api/v1/repos/${owner}/${repo}`);
+  if (repoRes.status === 404 || repoRes.status === 401) {
+    return { status: "private" };
+  }
+  if (!repoRes.ok) throw new Error(`Codeberg repo API failed: ${repoRes.status}`);
+
+  const repoData = await repoRes.json();
+  const isArchived = !!repoData.archived;
+
+  const pushOk = withinDays(
+    repoData.updated_at,
+    Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
+  );
+
+  const isActive = !isArchived && pushOk;
+  return {
+    status: isActive ? true : false,
+    details: { pushOk, isArchived }
   };
 }
 
@@ -221,6 +246,12 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
   const pat = await getPAT(); // existing function that returns the user's PAT or null
 
   switch (hostname) {
+    case "codeberg.org": {
+      if (parts.length < 2) throw new Error("Invalid Codeberg URL");
+      const [owner, repo] = parts;
+      return fetchCodebergRepoStatus({ owner, repo }, rules);
+    }
+
     case "github.com": {
       if (parts.length < 2) throw new Error("Invalid GitHub URL");
       const [owner, repo] = parts;

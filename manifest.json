@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://api.github.com/*",
-    "https://github.com/*"
+    "https://github.com/*",
+    "https://codeberg.org/*"
   ],
   "content_scripts": [
     {
