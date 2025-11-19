@@ -47,3 +47,12 @@ function isGithubRepoPrivate() {
   } catch {}
   return false;
 }
+
+// Export for Node test environment (jest) if available
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    looksLikeGithubRepoUrl,
+    isGithubRepoPageNow,
+    isGithubRepoPrivate,
+  };
+}
