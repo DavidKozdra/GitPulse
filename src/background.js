@@ -93,7 +93,10 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   const repoData = await repoRes.json();
   const isArchived = !!repoData.archived;
 
-
+  // Archived repos are immediately inactive; no need to continue with more GitHub calls
+  if (isArchived) {
+    return { status: false, details: { isArchived: true } };
+  }
 
   // 2) Open PR threshold (use search API for total_count)
   let openPrsOk = true;
