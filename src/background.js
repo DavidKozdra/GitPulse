@@ -433,3 +433,12 @@ chrome.runtime.onMessageExternal.addListener((m, s, r) => {
   handleMessage(m, s, r);
   return true; // keep channel open for async sendResponse
 });
+
+// Export helpers for Node-based unit tests
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    fetchGithubRepoStatus,
+    fetchCodebergRepoStatus,
+    fetchRepoStatusByUrl,
+  };
+}
