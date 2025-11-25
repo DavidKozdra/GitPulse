@@ -283,7 +283,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await saveConfig(defaultConfigCopy);           // persist defaults
     patInput.value = "";                           // clear PAT
     await clearRepoCache();
-    alert("✅ Configuration has been reset to defaults.");
+    alert(emoji_active+ "Configuration has been reset to defaults.");
 
     updateUI(defaultConfigCopy);                   // update form inputs
   });
