@@ -7,8 +7,8 @@ console.log("GitPulse SW started", chrome.runtime?.id);
 const CACHE_PREFIX = "repoCache:";
 const CACHE_SCHEMA_VERSION = 2;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;   // 24h for normal entries
-const RATE_TTL_MS  = 1000 * 60 * 60 * 2;    // 2h for rate-limited entries
-const CONFIG_KEY   = "repoCheckerConfig";   // unify on the same key used by popup.js
+const RATE_TTL_MS = 1000 * 60 * 60 * 2;    // 2h for rate-limited entries
+const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("GitPulse Installed");
@@ -175,7 +175,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
   }
 
-  const isActive =  openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
+  const isActive = openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
     details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
@@ -303,18 +303,19 @@ async function handleMessage(message, sender, sendResponse) {
 
       case "open_popup": {
         try {
-          const url = chrome.runtime.getURL("popup.html");
+          const url = chrome.runtime.getURL("src/popup.html");
+
           chrome.tabs.create({ url, active: true }, () => {
-            const err = chrome.runtime.lastError; // read to avoid unchecked lastError
-            // ignore error; still respond OK to avoid breaking UX
-            sendResponse({ ok: true });
+            const err = chrome.runtime.lastError;
+            sendResponse({ ok: !err, error: err ? String(err.message || err) : null });
           });
-          return; // async response
+          return true; // keep message channel open for async sendResponse
         } catch (e) {
           sendResponse({ ok: false, error: String(e) });
-          return;
+          return false;
         }
       }
+
 
       case "setPAT": {
         await setLocal({ githubPAT: String(message.pat || "") });

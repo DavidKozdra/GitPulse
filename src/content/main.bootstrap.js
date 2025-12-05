@@ -35,10 +35,11 @@ async function bootstrap() {
   if (onRepoPage) {
     // Show banner for repo pages
     if (isGithubRepoPrivate()) {
-      createBanner("private");
+      ToggleBanner("private",true);
     } else {
       const status = await isRepoActive(currentUrl);
-      createBanner(status);
+     
+      ToggleBanner(status,true);
     }
   } else {
     // Mark repo links on search/discovery pages
