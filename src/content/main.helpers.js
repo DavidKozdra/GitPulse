@@ -13,7 +13,7 @@ async function isRepoActive(url) {
 
 // Export for Node test environment (jest) if available
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { isRepoUrl, getActiveConfigMetrics };
+  module.exports = { isRepoUrl, getActiveConfigMetrics, isRepoActive };
 }
 
 async function getCacheFromBackground(key) {

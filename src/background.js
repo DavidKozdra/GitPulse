@@ -91,8 +91,12 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   }
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
   const repoData = await repoRes.json();
+  const isArchived = !!repoData.archived;
 
-
+  // Archived repos are immediately inactive; no need to continue with more GitHub calls
+  if (isArchived) {
+    return { status: false, details: { isArchived: true } };
+  }
 
   // 2) Open PR threshold (use search API for total_count)
   let openPrsOk = true;
@@ -175,10 +179,34 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
   }
 
-  const isActive = openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
+  const isActive = !isArchived && openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk }
+    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk, isArchived }
+  };
+}
+
+// Minimal Codeberg status fetcher, mirroring core GitHub logic where fields exist.
+// Uses the public Gitea-compatible API: https://codeberg.org/api/v1/repos/{owner}/{repo}
+async function fetchCodebergRepoStatus({ owner, repo }, rules) {
+  const repoRes = await fetch(`https://codeberg.org/api/v1/repos/${owner}/${repo}`);
+  if (repoRes.status === 404 || repoRes.status === 401) {
+    return { status: "private" };
+  }
+  if (!repoRes.ok) throw new Error(`Codeberg repo API failed: ${repoRes.status}`);
+
+  const repoData = await repoRes.json();
+  const isArchived = !!repoData.archived;
+
+  const pushOk = withinDays(
+    repoData.updated_at,
+    Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
+  );
+
+  const isActive = !isArchived && pushOk;
+  return {
+    status: isActive ? true : false,
+    details: { pushOk, isArchived }
   };
 }
 
@@ -221,6 +249,12 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
   const pat = await getPAT(); // existing function that returns the user's PAT or null
 
   switch (hostname) {
+    case "codeberg.org": {
+      if (parts.length < 2) throw new Error("Invalid Codeberg URL");
+      const [owner, repo] = parts;
+      return fetchCodebergRepoStatus({ owner, repo }, rules);
+    }
+
     case "github.com": {
       if (parts.length < 2) throw new Error("Invalid GitHub URL");
       const [owner, repo] = parts;
@@ -303,13 +337,20 @@ async function handleMessage(message, sender, sendResponse) {
 
       case "open_popup": {
         try {
-          const url = chrome.runtime.getURL("src/popup.html");
-
+          const manifest = (chrome.runtime && typeof chrome.runtime.getManifest === "function")
+            ? chrome.runtime.getManifest()
+            : {};
+          const popupPath =
+            (manifest.action && manifest.action.default_popup) ||
+            (manifest.browser_action && manifest.browser_action.default_popup) ||
+            "popup.html";
+          const url = chrome.runtime.getURL(popupPath);
           chrome.tabs.create({ url, active: true }, () => {
-            const err = chrome.runtime.lastError;
-            sendResponse({ ok: !err, error: err ? String(err.message || err) : null });
+            const err = chrome.runtime.lastError; // read to avoid unchecked lastError
+            // ignore error; still respond OK to avoid breaking UX
+            sendResponse({ ok: true });
           });
-          return true; // keep message channel open for async sendResponse
+          return; // async response
         } catch (e) {
           sendResponse({ ok: false, error: String(e) });
           return false;
