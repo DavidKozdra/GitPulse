@@ -65,17 +65,25 @@ async function processUniqueUrls(map) {
 function annotateLink(link, status) {
   if (link.dataset.repoChecked) return;
   link.dataset.repoChecked = 'true';
-  const mark = document.createElement('span');
-  const emojiPrivate = config.emoji_private?.active ? (config.emoji_private.value || '🔒') : '🔒';
-  const emojiRate = config.emoji_rate_limited?.active ? (config.emoji_rate_limited.value || '⏳') : '⏳';
-  const emojiActive = config.emoji_active?.active ? (config.emoji_active.value || '✅') : '✅';
-  const emojiInactive = config.emoji_inactive?.active ? (config.emoji_inactive.value || '❌') : '❌';
+  const getEmoji = (field, fallback) => {
+    if (!field || field.active === false) return '';
+    return field.value || fallback;
+  };
+
+  const emojiPrivate = getEmoji(config.emoji_private, '🔒');
+  const emojiRate = getEmoji(config.emoji_rate_limited, '⏳');
+  const emojiActive = getEmoji(config.emoji_active, '✅');
+  const emojiInactive = getEmoji(config.emoji_inactive, '❌');
 
   const icon =
     status === 'private' ? emojiPrivate :
     status === 'rate_limited' ? emojiRate :
     status === true ? emojiActive :
     status === false ? emojiInactive : '';
+
+  if (!icon) return;
+
+  const mark = document.createElement('span');
   mark.textContent = icon ? `${icon} ` : '';
   mark.style.color =
     status === 'private' ? '#555' :
@@ -116,5 +124,16 @@ async function markRepoLinks() {
     if (!map.size) return;
     await processUniqueUrls(map);
   }, DEBOUNCE_MS);
+}
+
+// Export helpers for tests (ignored in the browser)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    annotateLink,
+    dedupeLinks,
+    processUniqueUrls,
+    runWithConcurrency,
+    markRepoLinks,
+  };
 }
 
