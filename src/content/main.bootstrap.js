@@ -1,31 +1,58 @@
 // main.bootstrap.js
 (async function init() {
-  await bootstrap();
+  await safeBootstrap();
 
-  // Detect GitHub SPA navigations (back/forward, repo <-> search, etc.)
   let lastUrl = location.href;
-  new MutationObserver(() => {
+
+  new MutationObserver(async () => {
     const currentUrl = location.href;
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
-      bootstrap();
+
+      // Wait for Chrome to restore extension API context
+      await delay(75);
+
+      safeBootstrap();
     }
   }).observe(document.body, { childList: true, subtree: true });
 })();
 
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function safeBootstrap() {
+  try {
+    await bootstrap();
+  } catch (err) {
+    console.warn("Bootstrap failed due to context loss, retrying...", err);
+    await delay(100);
+    try {
+      await bootstrap();
+    } catch (err2) {
+      console.error("Bootstrap permanently failed:", err2);
+    }
+  }
+}
+
 async function bootstrap() {
+  console.log("run")
   const stored = await ext.storage.local.get(["repoCheckerConfig"]);
   config = (stored && stored.repoCheckerConfig) ? stored.repoCheckerConfig : defaultConfig;
-
+  console.log(stored, config)
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
   if (looksLikeGithubRepoUrl(currentUrl)) {
+     console.log("on page")
     const confirmed = await waitForGithubRepoIndicators();
     if (confirmed) {
+           console.log("on pag !")
       onRepoPage = true;
     } else {
       onRepoPage = false;
+      ToggleBanner(null, false);  // hide
+      console.log("no repo")
     }
   }
 

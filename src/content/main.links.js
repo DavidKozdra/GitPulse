@@ -36,6 +36,10 @@ function dedupeLinks(links) {
 }
 
 async function processUniqueUrls(map) {
+  if(!map) {
+    console.log("link process error")
+    return
+  }
   const tasks = [];
   for (const [key, elements] of map.entries()) {
     if (__linkStatusCache.has(key)) {

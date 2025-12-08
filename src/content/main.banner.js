@@ -145,3 +145,4 @@ function ToggleBanner(status, Toggle) {
 document.getElementById("banner-close").onclick = () => {
   document.getElementById("my-banner").style.display = "none";
 };
+
