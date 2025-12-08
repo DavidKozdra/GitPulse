@@ -37,7 +37,7 @@ function dedupeLinks(links) {
 
 async function processUniqueUrls(map) {
   if(!map) {
-    console.log("link process error")
+    console.warn("link process error")
     return
   }
   const tasks = [];

@@ -370,12 +370,29 @@ async function handleMessage(message, sender, sendResponse) {
         sendResponse({ success: true });
         return;
       }
-
+      
       case "getConfig": {
-        const stored = (await getLocal([CONFIG_KEY]))[CONFIG_KEY] || {};
-        sendResponse({ config: stored });
-        return;
+        getLocal([CONFIG_KEY])
+          .then(result => {
+            const stored = result[CONFIG_KEY];
+
+            if (!stored) {
+              // No config exists yet — create it
+              ext.storage.local.set({ [CONFIG_KEY]: defaultConfig });
+              sendResponse({ config: defaultConfig });
+            } else {
+              sendResponse({ config: stored });
+            }
+          })
+          .catch(err => {
+            console.error("Failed to read config:", err);
+            sendResponse({ config: defaultConfig }); // fail-safe fallback
+          });
+
+        return true; // KEEP MESSAGE CHANNEL OPEN
       }
+
+
 
       case "fetchRepoStatus": {
         console.log("fetchRepoStatus received:", message.url);

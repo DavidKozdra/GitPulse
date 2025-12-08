@@ -36,23 +36,18 @@ async function safeBootstrap() {
 }
 
 async function bootstrap() {
-  console.log("run")
   const stored = await ext.storage.local.get(["repoCheckerConfig"]);
   config = (stored && stored.repoCheckerConfig) ? stored.repoCheckerConfig : defaultConfig;
-  console.log(stored, config)
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
   if (looksLikeGithubRepoUrl(currentUrl)) {
-     console.log("on page")
     const confirmed = await waitForGithubRepoIndicators();
     if (confirmed) {
-           console.log("on pag !")
       onRepoPage = true;
     } else {
       onRepoPage = false;
       ToggleBanner(null, false);  // hide
-      console.log("no repo")
     }
   }
 
