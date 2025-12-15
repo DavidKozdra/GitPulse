@@ -66,7 +66,8 @@ function annotateLink(link, status) {
   if (link.dataset.repoChecked) return;
   link.dataset.repoChecked = 'true';
   const getEmoji = (field, fallback) => {
-    if (!field || field.active === false) return '';
+    const disabled = !field || field.active === false || field.active === 'false';
+    if (disabled) return '';
     return field.value || fallback;
   };
 
@@ -136,4 +137,3 @@ if (typeof module !== 'undefined' && module.exports) {
     markRepoLinks,
   };
 }
-

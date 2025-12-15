@@ -99,7 +99,8 @@ function ToggleBanner(status, Toggle) {
 
   // Respect config toggles; fall back to defaults when missing
   const getEmoji = (field, fallback) => {
-    if (!field || field.active === false) return "";
+    const disabled = !field || field.active === false || field.active === "false";
+    if (disabled) return "";
     return field.value || fallback;
   };
   const emojiPrivate = getEmoji(config?.emoji_private, "dY\"'");
