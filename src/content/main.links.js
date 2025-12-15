@@ -63,8 +63,10 @@ async function processUniqueUrls(map) {
 }
 
 function annotateLink(link, status) {
-  if (link.dataset.repoChecked) return;
+  // Allow re-annotation after config toggle changes: clear any prior marks
   link.dataset.repoChecked = 'true';
+  link.querySelectorAll('.repo-checker-mark').forEach(node => node.remove());
+
   const getEmoji = (field, fallback) => {
     const disabled = !field || field.active === false || field.active === 'false';
     if (disabled) return '';
@@ -85,6 +87,7 @@ function annotateLink(link, status) {
   if (!icon) return;
 
   const mark = document.createElement('span');
+  mark.className = 'repo-checker-mark';
   mark.textContent = icon ? `${icon} ` : '';
   mark.style.color =
     status === 'private' ? '#555' :
