@@ -65,7 +65,21 @@ async function processUniqueUrls(map) {
 function annotateLink(link, status) {
   // Allow re-annotation after config toggle changes: clear any prior marks
   link.dataset.repoChecked = 'true';
-  link.querySelectorAll('.repo-checker-mark').forEach(node => node.remove());
+
+  // Remove prior marks (new class plus legacy spans that used emoji text)
+  const knownEmojis = new Set([
+    config?.emoji_private?.value,
+    config?.emoji_rate_limited?.value,
+    config?.emoji_active?.value,
+    config?.emoji_inactive?.value,
+    'dY"\'', 'ƒ?3', 'ƒo.', 'ƒ?O'
+  ].filter(Boolean));
+  link.querySelectorAll('span').forEach(node => {
+    const text = (node.textContent || '').trim();
+    if (node.classList.contains('repo-checker-mark') || knownEmojis.has(text)) {
+      node.remove();
+    }
+  });
 
   const getEmoji = (field, fallback) => {
     const disabled = !field || field.active === false || field.active === 'false';
