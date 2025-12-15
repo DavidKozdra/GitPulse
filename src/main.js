@@ -7,3 +7,4 @@
 // The content_scripts order in `manifest.json` was updated to load these.
 
 //'Loaded main shim; real logic moved to smaller modules.'
+
