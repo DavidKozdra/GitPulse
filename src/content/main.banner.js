@@ -1,6 +1,7 @@
 // main.banner.js
 
-ensureBannerExists()
+ensureBannerExists();
+
 function ensureBannerExists() {
   let banner = document.getElementById("my-banner");
   if (banner) return banner; // already created
@@ -68,7 +69,7 @@ function ensureBannerExists() {
   // close button
   const closeBtn = document.createElement("button");
   closeBtn.id = "banner-close";
-  closeBtn.textContent = "✖";
+  closeBtn.textContent = "ƒo-";
   Object.assign(closeBtn.style, {
     background: "transparent",
     border: "none",
@@ -96,12 +97,22 @@ function ToggleBanner(status, Toggle) {
   const isActive = status === true;
   const isInactive = status === false;
 
+  // Respect config toggles; fall back to defaults when missing
+  const getEmoji = (field, fallback) => {
+    if (!field || field.active === false) return "";
+    return field.value || fallback;
+  };
+  const emojiPrivate = getEmoji(config?.emoji_private, "dY\"'");
+  const emojiRateLimited = getEmoji(config?.emoji_rate_limited, "ƒ?3");
+  const emojiActive = getEmoji(config?.emoji_active, "ƒo.");
+  const emojiInactive = getEmoji(config?.emoji_inactive, "ƒ?O");
+
   // EXPECTS an existing banner element in the HTML
   const banner = document.getElementById("my-banner");
-  const mainText = banner.querySelector(".banner-main-text");
-  const configLink = banner.querySelector(".banner-config-link");
+  const mainText = banner?.querySelector(".banner-main-text");
+  const configLink = banner?.querySelector(".banner-config-link");
 
-  if (!banner) {
+  if (!banner || !mainText || !configLink) {
     console.error("Banner element #my-banner not found in DOM.");
     return;
   }
@@ -114,20 +125,20 @@ function ToggleBanner(status, Toggle) {
   let emoji = "";
 
   if (isRateLimited) {
-    emoji = "⏳";
-    mainMessage = "Rate limit hit — Results temporarily inactive";
+    emoji = emojiRateLimited;
+    mainMessage = `${emoji ? `${emoji} ` : ""}Rate limit hit — results temporarily inactive`;
     bgColor = "#f57c00";
   } else if (isPrivate) {
-    emoji = "🔒";
-    mainMessage = "Private Repository";
+    emoji = emojiPrivate;
+    mainMessage = `${emoji ? `${emoji} ` : ""}Private Repository`;
     bgColor = "#555";
   } else if (isActive) {
-    emoji = config.emoji_active.active ? config.emoji_active.value : "";
-    mainMessage = `${emoji} Repo is Active !`;
+    emoji = emojiActive;
+    mainMessage = `${emoji ? `${emoji} ` : ""}Repo is Active !`;
     bgColor = "#1a8917";
   } else if (isInactive) {
-    emoji = config.emoji_inactive.active ? config.emoji_inactive.value : "";
-    mainMessage = `${emoji} Repo is InActive`;
+    emoji = emojiInactive;
+    mainMessage = `${emoji ? `${emoji} ` : ""}Repo is InActive`;
     bgColor = "#d32f2f";
   }
 
@@ -137,11 +148,10 @@ function ToggleBanner(status, Toggle) {
 
   // Update config link text
   configLink.textContent = isRateLimited
-    ? "(GitHub API limit reached — Add your Personal Access Token)"
+    ? "(GitHub API limit reached ƒ? Add your Personal Access Token)"
     : "(According to your Configuration)";
-
-    
 }
+
 document.getElementById("banner-close").onclick = () => {
   document.getElementById("my-banner").style.display = "none";
 };
