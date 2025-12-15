@@ -1,6 +1,7 @@
 // main.links.js
 // Per-page in-memory cache to avoid duplicate lookups during the same session
 const __linkStatusCache = new Map(); // key -> status
+let __configChangeListenerAttached = false;
 
 // Simple concurrency pool for promises
 async function runWithConcurrency(tasks, concurrency = 6) {
@@ -122,6 +123,21 @@ let __debounceTimer = null;
 const DEBOUNCE_MS = 250;
 
 async function markRepoLinks() {
+  // One-time attach storage listener to refresh annotations when config changes
+  if (!__configChangeListenerAttached && ext?.storage?.onChanged) {
+    try {
+      ext.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes?.repoCheckerConfig) {
+          __linkStatusCache.clear(); // force fresh statuses
+          markRepoLinks();           // re-run with new emoji toggles
+        }
+      });
+      __configChangeListenerAttached = true;
+    } catch (_) {
+      // best-effort; continue without listener
+    }
+  }
+
   if (__debounceTimer) clearTimeout(__debounceTimer);
   __debounceTimer = setTimeout(async () => {
     __debounceTimer = null;
