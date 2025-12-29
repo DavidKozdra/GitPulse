@@ -109,25 +109,43 @@ function ToggleBanner(status, Toggle) {
   // Toggle visibility
   banner.style.display = Toggle ? "flex" : "none";
 
+  // Persist last status so we can re-render on config changes without refetching.
+  try {
+    banner.dataset.gitpulseStatus =
+      status === true ? "true" :
+      status === false ? "false" :
+      (status === "private" || status === "rate_limited") ? status : "";
+  } catch {
+    // ignore
+  }
+
   let mainMessage = "";
   let bgColor = "";
-  let emoji = "";
+  const pick = (key, fallback) => {
+    const field = config?.[key];
+    if (field && field.active === false) return null;
+    const raw = typeof field?.value === "string" ? field.value.trim() : "";
+    return raw ? raw : fallback;
+  };
+  const emoji =
+    isRateLimited ? pick("emoji_rate_limited", "⏳") :
+    isPrivate ? pick("emoji_private", "🔒") :
+    isActive ? pick("emoji_active", "✅") :
+    isInactive ? pick("emoji_inactive", "❌") :
+    null;
+  const emojiPrefix = emoji ? `${emoji} ` : "";
 
   if (isRateLimited) {
-    emoji = "⏳";
-    mainMessage = "Rate limit hit — Results temporarily inactive";
+    mainMessage = `${emojiPrefix}Rate limit hit — Results temporarily inactive`;
     bgColor = "#f57c00";
   } else if (isPrivate) {
-    emoji = "🔒";
-    mainMessage = "Private Repository";
+    mainMessage = `${emojiPrefix}Private Repository`;
     bgColor = "#555";
   } else if (isActive) {
-    emoji = config.emoji_active.active ? config.emoji_active.value : "";
-    mainMessage = `${emoji} Repo is Active !`;
+    mainMessage = `${emojiPrefix}Repo is Active !`;
     bgColor = "#1a8917";
   } else if (isInactive) {
-    emoji = config.emoji_inactive.active ? config.emoji_inactive.value : "";
-    mainMessage = `${emoji} Repo is InActive`;
+    mainMessage = `${emojiPrefix}Repo is InActive`;
     bgColor = "#d32f2f";
   }
 
@@ -142,6 +160,17 @@ function ToggleBanner(status, Toggle) {
 
     
 }
+
+// Expose for bootstrap (config changes)
+window.gitpulseRefreshBanner = () => {
+  const banner = document.getElementById("my-banner");
+  if (!banner) return;
+  const raw = banner.dataset?.gitpulseStatus || "";
+  const status = raw === "true" ? true : raw === "false" ? false : raw;
+  if (status === "private" || status === "rate_limited" || status === true || status === false) {
+    ToggleBanner(status, banner.style.display !== "none");
+  }
+};
 document.getElementById("banner-close").onclick = () => {
   document.getElementById("my-banner").style.display = "none";
 };
