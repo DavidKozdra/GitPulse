@@ -345,11 +345,37 @@ async function handleMessage(message, sender, sendResponse) {
             (manifest.browser_action && manifest.browser_action.default_popup) ||
             "popup.html";
           const url = chrome.runtime.getURL(popupPath);
-          chrome.tabs.create({ url, active: true }, () => {
-            const err = chrome.runtime.lastError; // read to avoid unchecked lastError
-            // ignore error; still respond OK to avoid breaking UX
-            sendResponse({ ok: true });
-          });
+
+          // Chrome/Edge won't let us open the action popup UI directly from a content script.
+          // Best approximation: open the same popup page in a small popup window.
+          try {
+            chrome.windows.create(
+              {
+                url,
+                type: "popup",
+                width: 420,
+                height: 600,
+                focused: true,
+              },
+              () => {
+                const err = chrome.runtime.lastError; // read to avoid unchecked lastError
+                if (err) {
+                  // If popup windows are blocked, fall back to a normal tab.
+                  chrome.tabs.create({ url, active: true }, () => {
+                    const _ = chrome.runtime.lastError;
+                    sendResponse({ ok: true });
+                  });
+                  return;
+                }
+                sendResponse({ ok: true });
+              }
+            );
+          } catch {
+            chrome.tabs.create({ url, active: true }, () => {
+              const _ = chrome.runtime.lastError;
+              sendResponse({ ok: true });
+            });
+          }
           return; // async response
         } catch (e) {
           sendResponse({ ok: false, error: String(e) });
