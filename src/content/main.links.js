@@ -2,6 +2,104 @@
 // Per-page in-memory cache to avoid duplicate lookups during the same session
 const __linkStatusCache = new Map(); // key -> status
 
+const LINK_STATUS_ATTR = "data-gitpulse-status";
+const LINK_MARK_SELECTOR = 'span.repo-checker-mark[data-gitpulse-mark="1"]';
+
+function normalizeStatus(status) {
+  if (status === true) return "true";
+  if (status === false) return "false";
+  if (status === "private" || status === "rate_limited") return status;
+  return "";
+}
+
+function parseStatus(normalized) {
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  if (normalized === "private" || normalized === "rate_limited") return normalized;
+  return null;
+}
+
+function emojiForStatus(status) {
+  const pick = (key, fallback) => {
+    const field = config?.[key];
+    if (field && field.active === false) return null;
+    const raw = typeof field?.value === "string" ? field.value.trim() : "";
+    return raw ? raw : fallback;
+  };
+
+  if (status === "private") {
+    const e = pick("emoji_private", "🔒");
+    if (!e) return null;
+    return { icon: e, color: "#555", title: "Private repository" };
+  }
+  if (status === "rate_limited") {
+    const e = pick("emoji_rate_limited", "⏳");
+    if (!e) return null;
+    return { icon: e, color: "#f57c00", title: "Rate limited" };
+  }
+  if (status === true) {
+    const e = pick("emoji_active", "✅");
+    if (!e) return null;
+    return { icon: e, color: "green", title: "Active repository" };
+  }
+  if (status === false) {
+    const e = pick("emoji_inactive", "❌");
+    if (!e) return null;
+    return { icon: e, color: "red", title: "Inactive repository" };
+  }
+  return null;
+}
+
+function findOrAdoptLegacyMark(link) {
+  const existing = link.querySelector(LINK_MARK_SELECTOR);
+  if (existing) return existing;
+
+  // Best-effort adoption of legacy marks (older versions inserted a plain span)
+  const first = link.firstElementChild;
+  if (!first || first.tagName !== "SPAN") return null;
+  if (first.getAttribute("aria-hidden") !== "true") return null;
+  const title = first.title || "";
+  const known = new Set(["Active repository", "Inactive repository", "Private repository", "Rate limited"]);
+  if (!known.has(title)) return null;
+  if ((first.textContent || "").trim().length > 4) return null;
+
+  first.classList.add("repo-checker-mark");
+  first.dataset.gitpulseMark = "1";
+  return first;
+}
+
+function setOrRemoveLinkMark(link, status) {
+  const normalized = normalizeStatus(status);
+  if (normalized) {
+    link.setAttribute(LINK_STATUS_ATTR, normalized);
+  }
+
+  const emoji = emojiForStatus(status);
+  const existingMark = findOrAdoptLegacyMark(link);
+
+  if (!emoji) {
+    if (existingMark) existingMark.remove();
+    return;
+  }
+
+  const mark = existingMark || document.createElement("span");
+  if (!existingMark) {
+    mark.className = "repo-checker-mark";
+    mark.dataset.gitpulseMark = "1";
+    mark.setAttribute("aria-hidden", "true");
+    mark.style.marginRight = "4px";
+    try {
+      link.insertBefore(mark, link.firstChild);
+    } catch {
+      // ignore
+    }
+  }
+
+  mark.textContent = `${emoji.icon} `;
+  mark.style.color = emoji.color;
+  mark.title = emoji.title;
+}
+
 // Simple concurrency pool for promises
 async function runWithConcurrency(tasks, concurrency = 6) {
   const results = [];
@@ -67,33 +165,34 @@ async function processUniqueUrls(map) {
 }
 
 function annotateLink(link, status) {
-  if (link.dataset.repoChecked) return;
-  link.dataset.repoChecked = 'true';
-  const mark = document.createElement('span');
-  const emojiPrivate = config.emoji_private?.active ? (config.emoji_private.value || '🔒') : '🔒';
-  const emojiRate = config.emoji_rate_limited?.active ? (config.emoji_rate_limited.value || '⏳') : '⏳';
-  const emojiActive = config.emoji_active?.active ? (config.emoji_active.value || '✅') : '✅';
-  const emojiInactive = config.emoji_inactive?.active ? (config.emoji_inactive.value || '❌') : '❌';
-
-  const icon =
-    status === 'private' ? emojiPrivate :
-    status === 'rate_limited' ? emojiRate :
-    status === true ? emojiActive :
-    status === false ? emojiInactive : '';
-  mark.textContent = icon ? `${icon} ` : '';
-  mark.style.color =
-    status === 'private' ? '#555' :
-    status === 'rate_limited' ? '#f57c00' :
-    status === true ? 'green' :
-    'red';
-  mark.style.marginRight = '4px';
-  mark.setAttribute('aria-hidden', 'true');
-  if (status === true) mark.title = 'Active repository';
-  else if (status === false) mark.title = 'Inactive repository';
-  else if (status === 'private') mark.title = 'Private repository';
-  else if (status === 'rate_limited') mark.title = 'Rate limited';
-  try { link.prepend(mark); } catch (e) { /* ignore prepend failures */ }
+  setOrRemoveLinkMark(link, status);
 }
+
+function refreshAllLinkMarks() {
+  // Re-apply emojis for every previously checked link, without re-fetching.
+  const links = Array.from(document.querySelectorAll(`a[${LINK_STATUS_ATTR}]`));
+
+  // include same-origin iframe links
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  for (const iframe of iframes) {
+    try {
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      if (iframeDoc) links.push(...Array.from(iframeDoc.querySelectorAll(`a[${LINK_STATUS_ATTR}]`)));
+    } catch {
+      // cross-origin
+    }
+  }
+
+  if (!links.length) return;
+  for (const link of links) {
+    const status = parseStatus(link.getAttribute(LINK_STATUS_ATTR));
+    if (status === null) continue;
+    setOrRemoveLinkMark(link, status);
+  }
+}
+
+// Expose for bootstrap (config changes)
+window.gitpulseRefreshAllLinkMarks = refreshAllLinkMarks;
 
 // Debounced observer-based entry point
 let __debounceTimer = null;
