@@ -36,8 +36,19 @@ async function safeBootstrap() {
 }
 
 async function bootstrap() {
+  const mergeConfig = (storedCfg) => {
+    const merged = { ...defaultConfig };
+    if (storedCfg) {
+      Object.keys(storedCfg).forEach((key) => {
+        if (merged[key]) merged[key] = { ...merged[key], ...storedCfg[key] };
+        else merged[key] = storedCfg[key];
+      });
+    }
+    return merged;
+  };
+
   const stored = await ext.storage.local.get(["repoCheckerConfig"]);
-  config = (stored && stored.repoCheckerConfig) ? stored.repoCheckerConfig : defaultConfig;
+  config = mergeConfig(stored?.repoCheckerConfig);
   const currentUrl = window.location.href;
   let onRepoPage = isRepoUrl(currentUrl);
 
@@ -66,5 +77,88 @@ async function bootstrap() {
   } else {
     // Mark repo links on search/discovery pages
     await markRepoLinks();
+
+    // Keep updating marks for dynamic pages.
+    if (!window.__gitpulseLinkObserver) {
+      window.__gitpulseLinkObserver = new MutationObserver(() => {
+        try { markRepoLinks(); } catch { /* ignore */ }
+      });
+      window.__gitpulseLinkObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  // Install config change listener once per page context.
+  if (!window.__gitpulseConfigListenerInstalled) {
+    window.__gitpulseConfigListenerInstalled = true;
+
+    ext.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      if (!changes.repoCheckerConfig) return;
+
+      const prev = config;
+      config = mergeConfig(changes.repoCheckerConfig.newValue);
+
+      const keys = new Set([
+        ...Object.keys(prev || {}),
+        ...Object.keys(config || {}),
+      ]);
+
+      const changedKeys = [];
+      for (const k of keys) {
+        const a = prev?.[k];
+        const b = config?.[k];
+        const aActive = a?.active;
+        const bActive = b?.active;
+        const aValue = a?.value;
+        const bValue = b?.value;
+        if (aActive !== bActive || aValue !== bValue) changedKeys.push(k);
+      }
+
+      const emojiOnly = changedKeys.length > 0 && changedKeys.every((k) => k.startsWith("emoji_"));
+
+      // If the banner is currently visible, refresh it.
+      const banner = document.getElementById("my-banner");
+      const bannerVisible = !!banner && banner.style.display !== "none";
+
+      if (bannerVisible) {
+        if (emojiOnly && typeof window.gitpulseRefreshBanner === "function") {
+          window.gitpulseRefreshBanner();
+          return;
+        }
+
+        // Rules changed: recompute status and update banner.
+        (async () => {
+          try {
+            const url = window.location.href;
+            if (looksLikeGithubRepoUrl(url)) {
+              const confirmed = await waitForGithubRepoIndicators();
+              if (!confirmed) {
+                ToggleBanner(null, false);
+                return;
+              }
+            }
+            if (isGithubRepoPrivate()) {
+              ToggleBanner("private", true);
+            } else {
+              const status = await isRepoActive(url);
+              ToggleBanner(status, true);
+            }
+          } catch {
+            ToggleBanner(false, true);
+          }
+        })();
+
+        return;
+      }
+
+      // Link pages
+      if (emojiOnly && typeof window.gitpulseRefreshAllLinkMarks === "function") {
+        window.gitpulseRefreshAllLinkMarks();
+        return;
+      }
+
+      try { __linkStatusCache.clear(); } catch { /* ignore */ }
+      try { markRepoLinks(); } catch { /* ignore */ }
+    });
   }
 }
