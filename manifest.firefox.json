@@ -1,7 +1,7 @@
 {
     "manifest_version":  2,
     "name":  "GitPulse",
-    "version":  "1.31",
+    "version": "1.35",
     "description":  "A browser extension to show activity for repo links before you click them.",
     "permissions":  [
                         "activeTab",

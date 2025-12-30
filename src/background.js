@@ -76,6 +76,11 @@ async function getPAT() {
 //   (Add more hosts here and return { status, details? })
 // ---------------------------
 async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
+
+  if(!pat || pat.length === 0){
+    throw new Error("No PAT provided");
+  }
+
   const headers = {
     Accept: "application/vnd.github.v3+json",
     ...(pat ? { Authorization: `token ${pat}` } : {}),
@@ -224,21 +229,21 @@ async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify({ owner, repo, rules }),
   });
 
   if (!resp.ok) {
-    // You can get fancy here if you want (map 401/500/etc),
-    // but throwing is fine for now.
+    console.error("Supabase response not ok:", resp.status);
     throw new Error(`Supabase github-status failed: ${resp.status}`);
   }
 
-  // Supabase function already returns:
-  // { status: true|false|"rate_limited"|"private", details: {...} }
-  return resp.json();
+  const data = await resp.json();
+  return data;
 }
+
 
 
 // Add other ecosystems similarly (GitLab, Bitbucket, npm, etc.)
@@ -259,11 +264,12 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       if (parts.length < 2) throw new Error("Invalid GitHub URL");
       const [owner, repo] = parts;
 
-      if (pat) {
+      
+      if (typeof pat === "string" && pat.length > 0) {
         // Authenticated user → use GitHub directly with their PAT
         return fetchGithubRepoStatus({ owner, repo }, pat, rules);
       }
-
+      
 
       console.log("no pat use the server")
       // No PAT → use Supabase edge function (server-side token)
