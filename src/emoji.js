@@ -147,7 +147,7 @@
     if (!q) return list.slice(0, limit);
 
     // Normalize colon-style shortcodes like :bug: -> "bug"
-    const shortcodeMatch = /^:([a-z0-9_+\-]+):?$/.exec(q);
+    const shortcodeMatch = /^:([a-z0-9_+-]+):?$/.exec(q);
     const normalized = shortcodeMatch ? shortcodeMatch[1] : q;
 
     const tokens = tokenize(normalized);

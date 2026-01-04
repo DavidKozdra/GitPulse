@@ -1,0 +1,110 @@
+name: Publish (Stores)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect version change
+        id: version
+        shell: pwsh
+        run: |
+          $current = (Get-Content manifest.json | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($current)) { throw 'manifest.json missing version' }
+
+          $beforeSha = '${{ github.event.before }}'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -or [string]::IsNullOrWhiteSpace($beforeSha)) {
+            'changed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $beforeText = git show "$beforeSha`:manifest.json" 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($beforeText)) {
+            'changed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $before = ($beforeText | ConvertFrom-Json).version
+          $changed = ($before -ne $current)
+          "changed=$changed" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Install deps
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        working-directory: src
+        run: npm ci
+
+      - name: Lint
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        working-directory: src
+        run: npm run lint
+
+      - name: Test
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        working-directory: src
+        run: npm test
+
+      - name: Package (dist/*.zip)
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        shell: pwsh
+        run: ./scripts/pack.ps1
+
+      - name: Upload artifacts
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*.zip
+
+      - name: Publish to Chrome Web Store
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        shell: pwsh
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:EXTENSION_ID) -or [string]::IsNullOrWhiteSpace($env:CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:CLIENT_SECRET) -or [string]::IsNullOrWhiteSpace($env:REFRESH_TOKEN)) {
+            Write-Host 'Chrome secrets not configured; skipping Chrome publish.'
+            exit 0
+          }
+
+          $zip = Get-ChildItem dist -Filter '*-edge.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) { throw 'Edge/Chromium zip not found in dist/' }
+
+          npm install --global chrome-webstore-upload-cli
+          chrome-webstore-upload --source "dist/$($zip.Name)" --extension-id "$env:EXTENSION_ID" --client-id "$env:CLIENT_ID" --client-secret "$env:CLIENT_SECRET" --refresh-token "$env:REFRESH_TOKEN"
+
+      - name: Publish to Firefox AMO
+        if: steps.version.outputs.changed == 'True' || steps.version.outputs.changed == 'true'
+        shell: pwsh
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.FIREFOX_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.FIREFOX_API_SECRET }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WEB_EXT_API_KEY) -or [string]::IsNullOrWhiteSpace($env:WEB_EXT_API_SECRET)) {
+            Write-Host 'Firefox secrets not configured; skipping Firefox publish.'
+            exit 0
+          }
+
+          npm install --global web-ext
+          web-ext sign --channel listed --source-dir dist/firefox --artifacts-dir dist
