@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      should_publish: ${{ steps.meta.outputs.should_publish }}
+      edge_zip: ${{ steps.meta.outputs.edge_zip }}
+      firefox_zip: ${{ steps.meta.outputs.firefox_zip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        working-directory: src
+        shell: pwsh
+        run: |
+          if (Test-Path package-lock.json) {
+            npm ci
+          } else {
+            npm install
+          }
+
+      - name: Lint
+        working-directory: src
+        run: npm run lint
+
+      - name: Test
+        working-directory: src
+        run: npm test
+
+      - name: Build zips
+        shell: pwsh
+        run: .\scripts\pack.ps1
+
+      - name: Compute metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $manifest = Get-Content .\manifest.json | ConvertFrom-Json
+          $version = $manifest.version
+          if (-not $version) { throw 'manifest.json missing version' }
+
+          $edgeZip = (Get-ChildItem .\dist -Filter 'GitPulse-*-edge.zip' | Select-Object -First 1).FullName
+          $firefoxZip = (Get-ChildItem .\dist -Filter 'GitPulse-*-firefox.zip' | Select-Object -First 1).FullName
+          if (-not $edgeZip) { throw 'Missing edge zip in dist/' }
+          if (-not $firefoxZip) { throw 'Missing firefox zip in dist/' }
+
+          $shouldPublish = 'false'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $shouldPublish = 'true'
+          } elseif ('${{ github.event_name }}' -eq 'push') {
+            $before = '${{ github.event.before }}'
+            $sha = '${{ github.sha }}'
+            if ($before -and $before -ne '0000000000000000000000000000000000000000') {
+              $changed = git diff --name-only $before $sha
+              if ($changed -match '^(manifest\.json|manifest\.firefox\.json)$') {
+                $shouldPublish = 'true'
+              }
+            }
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "should_publish=$shouldPublish" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "edge_zip=$edgeZip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "firefox_zip=$firefoxZip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitPulse-${{ steps.meta.outputs.version }}
+          path: |
+            dist/*.zip
+
+  publish_chrome:
+    needs: build
+    runs-on: windows-latest
+    if: needs.build.outputs.should_publish == 'true'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: GitPulse-${{ needs.build.outputs.version }}
+          path: dist
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Upload & publish to Chrome Web Store (optional)
+        shell: pwsh
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          if (-not $env:CHROME_EXTENSION_ID -or -not $env:CHROME_CLIENT_ID -or -not $env:CHROME_CLIENT_SECRET -or -not $env:CHROME_REFRESH_TOKEN) {
+            Write-Host 'Chrome secrets not configured; skipping publish.'
+            exit 0
+          }
+          $zip = (Get-ChildItem .\dist -Filter '*-edge.zip' | Select-Object -First 1).FullName
+          if (-not $zip) { throw 'Edge zip not found in dist/' }
+          npx --yes chrome-webstore-upload-cli upload \
+            --source $zip \
+            --extension-id $env:CHROME_EXTENSION_ID \
+            --client-id $env:CHROME_CLIENT_ID \
+            --client-secret $env:CHROME_CLIENT_SECRET \
+            --refresh-token $env:CHROME_REFRESH_TOKEN
+          npx --yes chrome-webstore-upload-cli publish \
+            --extension-id $env:CHROME_EXTENSION_ID \
+            --client-id $env:CHROME_CLIENT_ID \
+            --client-secret $env:CHROME_CLIENT_SECRET \
+            --refresh-token $env:CHROME_REFRESH_TOKEN
+
+  publish_firefox:
+    needs: build
+    runs-on: ubuntu-latest
+    if: needs.build.outputs.should_publish == 'true'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: GitPulse-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Upload & publish to Firefox AMO (optional)
+        env:
+          FIREFOX_ADDON_ID: ${{ secrets.FIREFOX_ADDON_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+        run: |
+          if [ -z "$FIREFOX_ADDON_ID" ] || [ -z "$FIREFOX_JWT_ISSUER" ] || [ -z "$FIREFOX_JWT_SECRET" ]; then
+            echo 'Firefox secrets not configured; skipping publish.'
+            exit 0
+          fi
+          ZIP_PATH=$(ls dist/*-firefox.zip | head -n 1)
+          if [ -z "$ZIP_PATH" ]; then
+            echo 'Firefox zip not found in dist/'
+            exit 1
+          fi
+          cp "$ZIP_PATH" dist/gitpulse.xpi
+
+      - uses: trmcnvn/firefox-addon@v1
+        if: env.FIREFOX_ADDON_ID != ''
+        with:
+          uuid: ${{ secrets.FIREFOX_ADDON_ID }}
+          xpi: dist/gitpulse.xpi
+          manifest: manifest.firefox.json
+          api-key: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          api-secret: ${{ secrets.FIREFOX_JWT_SECRET }}
