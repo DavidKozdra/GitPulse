@@ -62,32 +62,3 @@ Contributions are welcome! Please open an issue or submit a pull request if you�
 ## 📜 License
 
 Free for all to use 
-
-## 🔁 CI/CD (auto store updates)
-
-This repo includes GitHub Actions workflows:
-
-- **CI** runs on PRs + pushes to `main` (lint + tests).
-- **Release** runs on pushes to `main` and builds distributable zips via `scripts/pack.ps1`.
-
-### Automatic publishing (optional)
-
-Publishing only happens when **either**:
-
-- You manually run the workflow (`workflow_dispatch`), **or**
-- A push to `main` includes a change to `manifest.json` or `manifest.firefox.json` (i.e., a version bump).
-
-If the required secrets are not configured, publishing is skipped and the workflow only uploads build artifacts.
-
-**Chrome Web Store secrets** (repo settings → Actions → Secrets and variables):
-
-- `CHROME_EXTENSION_ID`
-- `CHROME_CLIENT_ID`
-- `CHROME_CLIENT_SECRET`
-- `CHROME_REFRESH_TOKEN`
-
-**Firefox AMO secrets**:
-
-- `FIREFOX_ADDON_ID` (the add-on UUID / Gecko ID)
-- `FIREFOX_JWT_ISSUER`
-- `FIREFOX_JWT_SECRET`
