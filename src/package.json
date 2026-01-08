@@ -19,7 +19,7 @@
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "lint": "eslint --ext .js src",
+    "lint": "eslint --ext .js .",
     "test": "jest --runInBand",
     "test:watch": "jest --watch"
   },

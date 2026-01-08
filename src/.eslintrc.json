@@ -1,17 +1,36 @@
 {
   "env": {
     "browser": true,
+    "webextensions": true,
     "es2021": true,
     "node": true,
     "jest": true
   },
   "extends": "eslint:recommended",
+  "globals": {
+    "chrome": "readonly",
+    "browser": "readonly",
+    "ext": "readonly",
+    "defaultConfig": "readonly",
+    "config": "writable",
+    "resetConfig": "readonly",
+    "isRepoUrl": "readonly",
+    "looksLikeGithubRepoUrl": "readonly",
+    "waitForGithubRepoIndicators": "readonly",
+    "ToggleBanner": "readonly",
+    "isGithubRepoPrivate": "readonly",
+    "isRepoActive": "readonly",
+    "markRepoLinks": "readonly",
+    "__linkStatusCache": "readonly"
+  },
   "parserOptions": {
     "ecmaVersion": 12,
     "sourceType": "module"
   },
   "rules": {
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
-    "no-console": "off"
+    "no-console": "off",
+    "no-empty": "off",
+    "no-inner-declarations": "off"
   }
 }

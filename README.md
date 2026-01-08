@@ -62,3 +62,23 @@ Contributions are welcome! Please open an issue or submit a pull request if youâ
 ## ðŸ“œ License
 
 Free for all to use 
+
+## CI/CD (Store publishing)
+
+When you push to `main` with a `manifest.json` version bump, GitHub Actions can automatically build and publish the new package(s) to the extension stores.
+
+- Workflow: [.github/workflows/publish.yml](.github/workflows/publish.yml)
+- Always uploads `dist/*.zip` as artifacts.
+- Publishes to stores only when the required secrets are configured.
+
+**Chrome Web Store secrets**
+
+- `CHROME_EXTENSION_ID`
+- `CHROME_CLIENT_ID`
+- `CHROME_CLIENT_SECRET`
+- `CHROME_REFRESH_TOKEN`
+
+**Firefox AMO secrets**
+
+- `FIREFOX_API_KEY`
+- `FIREFOX_API_SECRET`

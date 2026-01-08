@@ -32,7 +32,9 @@ Compress-Archive -Path (Join-Path $edgeDir '*') -DestinationPath (Join-Path $Dis
 $ffDir = Join-Path $DistDir 'firefox'
 $ffManifestRoot = Join-Path $RepoRoot 'manifest.firefox.json'
 if (Test-Path $ffManifestRoot) {
-  Copy-Item -Force $ffManifestRoot -Destination (Join-Path $ffDir 'manifest.json')
+  $ffManifest = Get-Content $ffManifestRoot | ConvertFrom-Json
+  $ffManifest.version = $version
+  $ffManifest | ConvertTo-Json -Depth 20 | Out-File -Encoding UTF8 (Join-Path $ffDir 'manifest.json')
 } else {
   $m = $baseManifest | ConvertTo-Json -Depth 20 | ConvertFrom-Json
   $m.background = @{ scripts = @('GitPulse/src/background.js') }
