@@ -7,16 +7,24 @@
   --banner-button-bg: rgba(255, 255, 255, 0.2);
   --banner-button-hover: rgba(255, 255, 255, 0.4);
 
-  --body-bg: #121212;
-  --card-bg: #1e1e1e;
-  --card-text: #e0e0e0;
-  --label-text: #bbb;
-  --input-bg: #2c2c2c;
-  --input-border: #444;
+  --body-bg: #1a1a1a;
+  --popup-bg: #2d2d2d;
+  --header-bg: #232323;
+  --section-bg: #252525;
+  --card-text: #e8e8e8;
+  --label-text: #b8b8b8;
+  --subtitle-text: #999;
+  --input-bg: #1f1f1f;
+  --input-border: #3a3a3a;
   --input-focus-border: #bb86fc;
-  --input-focus-shadow: rgba(187, 134, 252, 0.3);
-  --button-bg: #bb86fc;
-  --button-hover-bg: #985eff;
+  --input-focus-shadow: rgba(187, 134, 252, 0.25);
+  --button-primary-bg: #bb86fc;
+  --button-primary-hover: #a770e8;
+  --button-secondary-bg: #3a3a3a;
+  --button-secondary-hover: #4a4a4a;
+  --divider-color: #3a3a3a;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 @media (prefers-color-scheme: light) {
@@ -26,122 +34,369 @@
     --banner-button-bg: rgba(0, 0, 0, 0.1);
     --banner-button-hover: rgba(0, 0, 0, 0.2);
 
-    --body-bg: #f5f5f5;
-    --card-bg: #fff;
-    --card-text: #333;
-    --label-text: #555;
-    --input-bg: #fafafa;
-    --input-border: #ccc;
+    --body-bg: #f8f9fa;
+    --popup-bg: #ffffff;
+    --header-bg: #f8f9fa;
+    --section-bg: #fafbfc;
+    --card-text: #24292e;
+    --label-text: #586069;
+    --subtitle-text: #6a737d;
+    --input-bg: #ffffff;
+    --input-border: #e1e4e8;
     --input-focus-border: #6200ee;
-    --input-focus-shadow: rgba(98, 0, 238, 0.2);
-    --button-bg: #6200ee;
-    --button-hover-bg: #3700b3;
+    --input-focus-shadow: rgba(98, 0, 238, 0.15);
+    --button-primary-bg: #6200ee;
+    --button-primary-hover: #5000c8;
+    --button-secondary-bg: #e1e4e8;
+    --button-secondary-hover: #d0d3d8;
+    --divider-color: #e1e4e8;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
   }
 }
 
 /* -----------------------------------
    GLOBAL STYLES
 ----------------------------------- */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--body-bg);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: 100vh;
-  min-width: 100vw;
-  padding: 40px 20px;
   color: var(--card-text);
+  width: 420px;
+  height: 600px;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 /* -----------------------------------
-   CARD STYLES
+   POPUP CONTAINER
 ----------------------------------- */
-.card {
-  background: var(--card-bg);
-  border-radius: 12px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
-  width: 480px;
-  padding: 30px;
+.popup-container {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--popup-bg);
 }
 
-h2 {
-  margin-top: 0;
-  font-weight: 500;
+/* -----------------------------------
+   HEADER
+----------------------------------- */
+.popup-header {
+  background: var(--header-bg);
+  padding: 20px;
+  border-bottom: 1px solid var(--divider-color);
+  flex-shrink: 0;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-link {
+  display: block;
+  flex-shrink: 0;
+  line-height: 0;
+  transition: opacity 0.2s;
+}
+
+.logo-link:hover {
+  opacity: 0.8;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.header-text {
+  flex: 1;
+}
+
+.popup-title {
+  font-size: 18px;
+  font-weight: 600;
   color: var(--card-text);
-  text-align: center;
+  margin: 0 0 2px 0;
+  line-height: 1.2;
+}
+
+.popup-subtitle {
+  font-size: 13px;
+  color: var(--subtitle-text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+/* -----------------------------------
+   CONTENT AREA
+----------------------------------- */
+.popup-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.popup-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.popup-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.popup-content::-webkit-scrollbar-thumb {
+  background: var(--input-border);
+  border-radius: 4px;
+}
+
+.popup-content::-webkit-scrollbar-thumb:hover {
+  background: var(--label-text);
+}
+
+/* -----------------------------------
+   SECTIONS
+----------------------------------- */
+.section {
+  margin-bottom: 24px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.section-header {
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--card-text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+/* -----------------------------------
+   FORMS
+----------------------------------- */
+.forms-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  margin-top: 16px;
+  gap: 6px;
 }
 
-.form-group label {
+.form-group-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--section-bg);
+  border-radius: 6px;
+  border: 1px solid var(--divider-color);
+  transition: border-color 0.2s;
+}
+
+.form-group-row:hover {
+  border-color: var(--input-border);
+}
+
+.form-group-row .form-input {
+  max-width: 120px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* Checkbox Styling */
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--button-primary-bg);
+}
+
+.toggle-checkbox {
+  flex-shrink: 0;
+}
+
+.form-label {
+  font-size: 13px;
   font-weight: 500;
   color: var(--label-text);
-  margin-bottom: 6px;
+  line-height: 1.4;
 }
 
-.form-group input {
-  padding: 10px 14px;
-  border-radius: 8px;
+.form-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 6px;
   border: 1px solid var(--input-border);
   outline: none;
   font-size: 14px;
+  font-family: inherit;
   background: var(--input-bg);
   color: var(--card-text);
-  transition: 0.3s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-group input:focus {
+.form-input::placeholder {
+  color: var(--subtitle-text);
+}
+
+.form-input:focus {
   border-color: var(--input-focus-border);
-  box-shadow: 0 2px 8px var(--input-focus-shadow);
-  background: var(--card-bg);
+  box-shadow: 0 0 0 3px var(--input-focus-shadow);
 }
 
-/* Button */
-button {
-  margin-top: 24px;
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  color: #fff;
-  background: var(--button-bg);
+.input-with-button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input-with-button .form-input {
+  flex: 1;
+}
+
+.icon-button {
+  flex-shrink: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
   cursor: pointer;
-  transition: 0.3s;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
 }
 
-button:hover { background: var(--button-hover-bg); }
+.icon-button:hover {
+  background: var(--button-secondary-hover);
+  border-color: var(--label-text);
+}
+
+.eye-icon {
+  display: block;
+  user-select: none;
+}
 
 /* -----------------------------------
-   BANNER STYLES
+   FOOTER
+----------------------------------- */
+.popup-footer {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-top: 1px solid var(--divider-color);
+  background: var(--header-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* -----------------------------------
+   BUTTONS
+----------------------------------- */
+.btn {
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-text {
+  line-height: 1;
+}
+
+.btn-primary {
+  background: var(--button-primary-bg);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--button-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--button-secondary-bg);
+  color: var(--card-text);
+}
+
+.btn-secondary:hover {
+  background: var(--button-secondary-hover);
+}
+
+/* Legacy button styles for dynamically created buttons */
+button:not(.btn):not(.icon-button):not(.emoji-btn):not(.emoji-choice):not(.emoji-trigger) {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--button-primary-bg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+button:not(.btn):not(.icon-button):not(.emoji-btn):not(.emoji-choice):not(.emoji-trigger):hover {
+  background: var(--button-primary-hover);
+}
+
+/* -----------------------------------
+   BANNER STYLES (for content scripts)
 ----------------------------------- */
 .my-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-
   max-width: 400px;
   margin: 12px auto;
   padding: 10px 16px;
-
   font-size: 16px;
   font-weight: 600;
   color: var(--banner-text);
   background-color: var(--banner-bg);
-
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-
   transition: transform 0.3s ease, opacity 0.3s ease;
   opacity: 0;
   transform: translateY(-20px);
@@ -175,73 +430,110 @@ button:hover { background: var(--button-hover-bg); }
   color: var(--banner-bg);
 }
 
-/* Responsive */
-@media (max-width: 500px) {
-  .card { width: 100%; padding: 20px; }
-}
-
-
-.clearBtn {
-  background-color: rgb(180, 53, 53);
-}
-
 /* -----------------------------------
    EMOJI PICKER
 ----------------------------------- */
-.emoji-btn {
+.emoji-btn,
+.emoji-trigger {
   width: auto !important;
   margin-top: 0 !important;
-  background: var(--button-bg);
-  color: #fff;
-  border-radius: 6px;
-  padding: 6px 8px;
+  background: var(--button-primary-bg) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 9px 12px !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+}
+
+.emoji-btn:hover,
+.emoji-trigger:hover {
+  background: var(--button-primary-hover) !important;
 }
 
 .emoji-picker {
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
-  width: 260px;
-  background: var(--card-bg);
-  border: 1px solid var(--input-border);
-  border-radius: 10px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-  padding: 8px;
+  top: calc(100% + 8px);
+  width: 280px;
+  background: var(--popup-bg);
+  border: 1px solid var(--divider-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 12px;
   z-index: 10000;
+}
+
+.emoji-search-wrap {
+  margin-bottom: 8px;
 }
 
 .emoji-search {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--input-border);
   outline: none;
   background: var(--input-bg);
   color: var(--card-text);
-  margin-bottom: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.emoji-search:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px var(--input-focus-shadow);
 }
 
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 4px;
-  max-height: 200px;
+  max-height: 240px;
   overflow-y: auto;
+  padding: 4px;
+}
+
+.emoji-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.emoji-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.emoji-grid::-webkit-scrollbar-thumb {
+  background: var(--input-border);
+  border-radius: 3px;
+}
+
+.emoji-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--label-text);
 }
 
 .emoji-choice {
-  width: auto !important;
-  margin-top: 0 !important;
+  width: 100% !important;
+  aspect-ratio: 1 !important;
+  margin: 0 !important;
   padding: 6px !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   background: transparent !important;
   border: 1px solid transparent !important;
   color: var(--card-text) !important;
-  font-size: 18px !important;
+  font-size: 20px !important;
   line-height: 1 !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .emoji-choice:hover {
-  border-color: var(--input-border) !important;
+  border-color: var(--input-focus-border) !important;
   background: var(--input-bg) !important;
+  transform: scale(1.1) !important;
 }

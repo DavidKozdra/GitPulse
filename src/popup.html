@@ -2,31 +2,61 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Repo Checker Config</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitPulse Configuration</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div class="card">
-    
-    <a href="https://github.com/DavidKozdra/GitPulse">
-    <img src="./icon.png" alt="icon" style="width:48px; height:48px;"> </a>
-    <h2>Repo Checker Config</h2>
-    
-    <div class="forms-container"> 
-
-    </div>
-      <div class="form-group">
-      <label for="pat">GitHub PAT</label>
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <input type="password" id="pat" maxlength="100" style="flex:1;" />
-        <button type="button" id="togglePat" style="padding: 6px 10px; cursor: pointer;">👁️</button>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="popup-header">
+      <div class="header-content">
+        <a href="https://github.com/DavidKozdra/GitPulse" target="_blank" class="logo-link">
+          <img src="./icon.png" alt="GitPulse" class="logo">
+        </a>
+        <div class="header-text">
+          <h1 class="popup-title">GitPulse</h1>
+          <p class="popup-subtitle">Configuration</p>
+        </div>
       </div>
     </div>
-    
-    <button id="saveBtn">Save</button>
 
+    <!-- Main Content -->
+    <div class="popup-content">
+      <!-- GitHub PAT Section -->
+      <div class="section">
+        <div class="section-header">
+          <h3 class="section-title">Authentication</h3>
+        </div>
+        <div class="form-group">
+          <label for="pat" class="form-label">GitHub Personal Access Token</label>
+          <div class="input-with-button">
+            <input type="password" id="pat" maxlength="100" class="form-input" placeholder="ghp_..."/>
+            <button type="button" id="togglePat" class="icon-button" title="Toggle visibility">
+              <span class="eye-icon">👁️</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
-    <button id="clearBtn">Reset</button>
+      <!-- Repository Settings Section -->
+      <div class="section">
+        <div class="section-header">
+          <h3 class="section-title">Repository Settings</h3>
+        </div>
+        <div class="forms-container"></div>
+      </div>
+    </div>
+
+    <!-- Footer Actions -->
+    <div class="popup-footer">
+      <button id="saveBtn" class="btn btn-primary">
+        <span class="btn-text">Save Configuration</span>
+      </button>
+      <button id="clearBtn" class="btn btn-secondary">
+        <span class="btn-text">Reset to Defaults</span>
+      </button>
+    </div>
   </div>
 
   <script src="emoji.js"></script>
