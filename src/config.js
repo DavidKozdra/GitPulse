@@ -1,5 +1,5 @@
 // ---------- Configuration ----------
-const CONFIG_KEY = "config";
+const CONFIG_KEY = "repoCheckerConfig";
 const defaultConfig = {
   max_repo_update_time: {
     name: "Max days since last commit",

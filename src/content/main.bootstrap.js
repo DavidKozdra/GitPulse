@@ -91,10 +91,18 @@ async function bootstrap() {
   if (!window.__gitpulseConfigListenerInstalled) {
     window.__gitpulseConfigListenerInstalled = true;
 
+    let _configDebounceTimer = null;
     ext.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
       if (!changes.repoCheckerConfig) return;
 
+      clearTimeout(_configDebounceTimer);
+      _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
+    });
+  }
+}
+
+function _handleConfigChange(changes, mergeConfig) {
       const prev = config;
       config = mergeConfig(changes.repoCheckerConfig.newValue);
 
@@ -159,6 +167,4 @@ async function bootstrap() {
 
       try { __linkStatusCache.clear(); } catch { /* ignore */ }
       try { markRepoLinks(); } catch { /* ignore */ }
-    });
-  }
 }

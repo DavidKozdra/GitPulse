@@ -80,6 +80,9 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   if(!pat || pat.length === 0){
     throw new Error("No PAT provided");
   }
+  if (!/^(ghp_|github_pat_)/i.test(pat)) {
+    throw new Error("Invalid PAT format — expected a token starting with ghp_ or github_pat_");
+  }
 
   const headers = {
     Accept: "application/vnd.github.v3+json",
@@ -410,7 +413,7 @@ async function handleMessage(message, sender, sendResponse) {
 
             if (!stored) {
               // No config exists yet — create it
-              ext.storage.local.set({ [CONFIG_KEY]: defaultConfig });
+              setLocal({ [CONFIG_KEY]: defaultConfig });
               sendResponse({ config: defaultConfig });
             } else {
               sendResponse({ config: stored });
@@ -476,7 +479,8 @@ chrome.runtime.onMessage.addListener((m, s, r) => {
 // External (web pages using your extension ID)
 chrome.runtime.onMessageExternal.addListener((m, s, r) => {
   // Tighten origin if desired
-  if (!s?.origin?.endsWith("github.com")) {
+  const allowedOrigins = ["https://github.com", "https://codeberg.org"];
+  if (!s?.origin || !allowedOrigins.includes(s.origin)) {
     r({ ok: false, error: "origin not allowed" });
     return;
   }
