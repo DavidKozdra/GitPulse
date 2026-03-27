@@ -21,7 +21,10 @@
     "isGithubRepoPrivate": "readonly",
     "isRepoActive": "readonly",
     "markRepoLinks": "readonly",
-    "__linkStatusCache": "readonly"
+    "__linkStatusCache": "readonly",
+    "__gp": "writable",
+    "validateConfig": "readonly",
+    "ensureBannerExists": "readonly"
   },
   "parserOptions": {
     "ecmaVersion": 12,
@@ -32,5 +35,14 @@
     "no-console": "off",
     "no-empty": "off",
     "no-inner-declarations": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["test/**/*.test.js"],
+      "rules": {
+        "no-undef": "off",
+        "no-eval": "off"
+      }
+    }
+  ]
 }
