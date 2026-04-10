@@ -88,21 +88,8 @@ async function bootstrap() {
   }
 
   // Install config change listener once per page context.
-<<<<<<< Updated upstream
-  if (!window.__gitpulseConfigListenerInstalled) {
-    window.__gitpulseConfigListenerInstalled = true;
-
-    let _configDebounceTimer = null;
-    ext.storage.onChanged.addListener((changes, area) => {
-      if (area !== "local") return;
-      if (!changes.repoCheckerConfig) return;
-
-      clearTimeout(_configDebounceTimer);
-      _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
-    });
-  }
-=======
-  if (!__gp.configListenerInstalled) {
+  window.__gp = window.__gp || {};
+  if (!window.__gp.configListenerInstalled) {
     let _configDebounceTimer = null;
     const storageOnChanged = ext?.storage?.onChanged;
     if (!storageOnChanged || typeof storageOnChanged.addListener !== "function") {
@@ -117,9 +104,8 @@ async function bootstrap() {
       _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
     });
 
-    __gp.configListenerInstalled = true;
+    window.__gp.configListenerInstalled = true;
   }
->>>>>>> Stashed changes
 }
 
 function _handleConfigChange(changes, mergeConfig) {

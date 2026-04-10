@@ -161,6 +161,8 @@ function ToggleBanner(status, Toggle) {
 }
 
 // Expose for bootstrap (config changes)
+globalThis.__gp = globalThis.__gp || {};
+window.__gp = globalThis.__gp;
 window.gitpulseRefreshBanner = () => {
   const banner = document.getElementById("my-banner");
   if (!banner) return;
@@ -170,6 +172,7 @@ window.gitpulseRefreshBanner = () => {
     ToggleBanner(status, banner.style.display !== "none");
   }
 };
+window.__gp.refreshBanner = window.gitpulseRefreshBanner;
 const bannerCloseBtn = document.getElementById("banner-close");
 if (bannerCloseBtn) {
   bannerCloseBtn.onclick = () => {

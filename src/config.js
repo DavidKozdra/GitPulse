@@ -91,35 +91,75 @@ const defaultConfig = {
   }
 };
 
+function cloneConfigShape(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
+function validateConfig(storedConfig) {
+  const merged = cloneConfigShape(defaultConfig);
+
+  if (!storedConfig || typeof storedConfig !== "object" || Array.isArray(storedConfig)) {
+    return merged;
+  }
+
+  Object.entries(storedConfig).forEach(([key, rawField]) => {
+    if (!rawField || typeof rawField !== "object" || Array.isArray(rawField)) {
+      return;
+    }
+
+    const base = merged[key] ? { ...merged[key] } : {};
+    const next = { ...base, ...rawField };
+
+    if (next.type === "number") {
+      const numeric = typeof rawField.value === "number" ? rawField.value : Number(rawField.value);
+      next.value = Number.isFinite(numeric) && numeric >= 0 ? numeric : base.value;
+    } else if (next.type === "text") {
+      const fallback = typeof base.value === "string" ? base.value : "";
+      const text = typeof rawField.value === "string" ? rawField.value : fallback;
+      next.value = text.slice(0, 8);
+    } else if (Object.prototype.hasOwnProperty.call(rawField, "value")) {
+      next.value = rawField.value;
+    }
+
+    if (rawField.active === false) next.active = false;
+    else if (rawField.active === true) next.active = true;
+    else if (typeof base.active === "boolean") next.active = base.active;
+    else next.active = true;
+
+    merged[key] = next;
+  });
+
+  return merged;
+}
 
 // ---------------------------
 // Load config via background
 // ---------------------------
 async function loadConfig() {
   const response = await ext.sendMessage({ action: "getConfig" });
-  const stored = response?.config;
-  if (stored) return { ...defaultConfig, ...stored };
-  return { ...defaultConfig };
+  return validateConfig(response?.config);
 }
 
 // ---------------------------
 // Save config via background
 // ---------------------------
 async function saveConfig(config) {
-  const response = await ext.sendMessage({ action: "setConfig", config });
+  const safeConfig = validateConfig(config);
+  const response = await ext.sendMessage({ action: "setConfig", config: safeConfig });
   return response?.success || false;
 }
 
-
-
 async function resetConfig() {
-  const configCopy = JSON.parse(JSON.stringify(defaultConfig));
+  const configCopy = cloneConfigShape(defaultConfig);
   try {
     await ext.sendMessage({ action: "setConfig", config: configCopy });
   } catch (e) {
     // best-effort: allow caller to persist via direct storage if needed
   }
   return configCopy;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { CONFIG_KEY, defaultConfig, validateConfig, loadConfig, saveConfig, resetConfig };
 }
 

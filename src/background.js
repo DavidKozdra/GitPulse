@@ -32,6 +32,51 @@ const withinDays = (dateStr, maxDays) => {
   return last >= cutoff;
 };
 const isString = (x) => typeof x === "string";
+const isPlainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+
+function validateSegment(segment) {
+  if (typeof segment !== "string") throw new Error("Invalid path segment");
+  const value = segment.trim();
+  if (!value || value === "." || value === ".." || value.includes("/") || value.includes("\\") || value.includes("..")) {
+    throw new Error("Unsafe path segment");
+  }
+  if (!/^[A-Za-z0-9._~-]+$/.test(value)) {
+    throw new Error("Invalid path segment");
+  }
+  return value;
+}
+
+async function smartClearCache(oldConfig, newConfig) {
+  if (!isPlainObject(oldConfig) || !isPlainObject(newConfig)) {
+    await clearCache();
+    return { success: true, cleared: true };
+  }
+
+  const keys = new Set([...Object.keys(oldConfig), ...Object.keys(newConfig)]);
+  const changedRuleKeys = [];
+
+  for (const key of keys) {
+    if (key.startsWith("emoji_")) continue;
+
+    const prev = oldConfig[key];
+    const next = newConfig[key];
+    const prevActive = prev?.active ?? false;
+    const nextActive = next?.active ?? false;
+    const prevValue = prev?.value;
+    const nextValue = next?.value;
+
+    if (prevActive !== nextActive || prevValue !== nextValue) {
+      changedRuleKeys.push(key);
+    }
+  }
+
+  if (!changedRuleKeys.length) {
+    return { success: true, skipped: true };
+  }
+
+  await clearCache();
+  return { success: true, cleared: true, changedRuleKeys };
+}
 
 // Merge active, enabled config fields into a flat rules object
 async function loadActiveRules() {
@@ -259,13 +304,15 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
   switch (hostname) {
     case "codeberg.org": {
       if (parts.length < 2) throw new Error("Invalid Codeberg URL");
-      const [owner, repo] = parts;
+      const owner = validateSegment(parts[0]);
+      const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
       return fetchCodebergRepoStatus({ owner, repo }, rules);
     }
 
     case "github.com": {
       if (parts.length < 2) throw new Error("Invalid GitHub URL");
-      const [owner, repo] = parts;
+      const owner = validateSegment(parts[0]);
+      const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
 
       
       if (typeof pat === "string" && pat.length > 0) {
@@ -401,8 +448,11 @@ async function handleMessage(message, sender, sendResponse) {
       }
 
       case "setConfig": {
-        await setLocal({ [CONFIG_KEY]: message.config || {} });
-        sendResponse({ success: true });
+        const nextConfig = isPlainObject(message.config) ? message.config : {};
+        const { [CONFIG_KEY]: oldConfig } = await getLocal([CONFIG_KEY]);
+        await setLocal({ [CONFIG_KEY]: nextConfig });
+        const cacheResult = await smartClearCache(oldConfig, nextConfig);
+        sendResponse({ success: true, cache: cacheResult });
         return;
       }
       
@@ -410,18 +460,11 @@ async function handleMessage(message, sender, sendResponse) {
         getLocal([CONFIG_KEY])
           .then(result => {
             const stored = result[CONFIG_KEY];
-
-            if (!stored) {
-              // No config exists yet — create it
-              setLocal({ [CONFIG_KEY]: defaultConfig });
-              sendResponse({ config: defaultConfig });
-            } else {
-              sendResponse({ config: stored });
-            }
+            sendResponse({ config: isPlainObject(stored) ? stored : {} });
           })
           .catch(err => {
             console.error("Failed to read config:", err);
-            sendResponse({ config: defaultConfig }); // fail-safe fallback
+            sendResponse({ config: {} }); // fail-safe fallback
           });
 
         return true; // KEEP MESSAGE CHANNEL OPEN
