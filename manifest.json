@@ -1,45 +1,39 @@
 {
   "manifest_version": 3,
-  "name": "GitPulse",
+  "name": "Extension Boilerplate",
   "version": "1.37",
-  "description": "A Chrome extension to show activity for repo links before you click them.",
+  "description": "A minimal browser extension boilerplate.",
   "permissions": [
     "activeTab",
-    "storage",
-    "tabs"
+    "tabs",
+    "contextMenus",
+    "scripting",
+    "clipboardWrite"
   ],
-  "host_permissions": [
-    "https://api.github.com/*",
-    "https://github.com/*",
-    "https://codeberg.org/*"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": [
-        "src/compat.js",
-        "src/config.js",
-        "src/content/main.helpers.js",
-        "src/content/main.banner.js",
-        "src/content/main.links.js",
-        "src/content/main.detect.js",
-        "src/content/main.bootstrap.js",
-        "src/main.js"
-      ],
-      "run_at": "document_idle"
+  "commands": {
+    "copy-selected-tab-urls": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y"
+      },
+      "description": "Copy the highlighted tabs' URLs"
+    },
+    "copy-all-tab-urls": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U"
+      },
+      "description": "Copy all tabs' URLs in the current window"
     }
-  ],
+  },
   "background": {
     "service_worker": "src/background.js"
   },
   "action": {
     "default_popup": "src/popup.html",
-    "default_icon": "src/icon.png"
+    "default_icon": "src/icon.svg"
   },
   "icons": {
-    "16": "src/icon.png",
-    "48": "src/icon.png",
-    "128": "src/icon.png"
+    "16": "src/icon.svg",
+    "48": "src/icon.svg",
+    "128": "src/icon.svg"
   }
 }
-

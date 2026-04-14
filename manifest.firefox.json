@@ -1,62 +1,52 @@
 {
     "manifest_version":  2,
-    "name":  "GitPulse",
+    "name":  "Extension Boilerplate",
     "version": "1.34",
-    "description":  "A browser extension to show activity for repo links before you click them.",
+    "description":  "A minimal browser extension boilerplate.",
     "permissions":  [
                         "activeTab",
-                        "storage",
                         "tabs",
-                        "https://api.github.com/*",
-                        "https://github.com/*",
-                        "https://codeberg.org/*"
+                        "contextMenus",
+                        "clipboardWrite"
                     ],
-    "content_scripts":  [
-                            {
-                                "matches":  [
-                                                "\u003call_urls\u003e"
-                                            ],
-                                "js":  [
-                                           "GitPulse/src/compat.js",
-                                           "GitPulse/src/config.js",
-                                           "GitPulse/src/content/main.helpers.js",
-                                           "GitPulse/src/content/main.banner.js",
-                                           "GitPulse/src/content/main.links.js",
-                                           "GitPulse/src/content/main.detect.js",
-                                           "GitPulse/src/content/main.bootstrap.js",
-                                           "GitPulse/src/main.js"
-                                       ],
-                                "run_at":  "document_idle"
-                            }
-                        ],
+    "commands":  {
+                    "copy-selected-tab-urls":  {
+                                                  "suggested_key":  {
+                                                                       "default":  "Ctrl+Shift+Y"
+                                                                   },
+                                                  "description":  "Copy the highlighted tabs' URLs"
+                                              },
+                    "copy-all-tab-urls":  {
+                                              "suggested_key":  {
+                                                                   "default":  "Ctrl+Shift+U"
+                                                               },
+                                              "description":  "Copy all tabs' URLs in the current window"
+                                          }
+                },
     "background":  {
                        "scripts":  [
-                                       "GitPulse/src/background.js"
+                                       "src/background.js"
                                    ]
                    },
     "browser_action":  {
-                           "default_popup":  "GitPulse/src/popup.html",
+                           "default_popup":  "src/popup.html",
                            "default_icon":  {
-                                                "16":  "GitPulse/src/icons/icon-16.png",
-                                                "32":  "GitPulse/src/icons/icon-32.png",
-                                                "48":  "GitPulse/src/icons/icon-48.png",
-                                                "128":  "GitPulse/src/icons/icon-128.png"
+                                                "16":  "src/icon.svg",
+                                                "32":  "src/icon.svg",
+                                                "48":  "src/icon.svg",
+                                                "128":  "src/icon.svg"
                                             }
                        },
     "icons":  {
-                  "16":  "GitPulse/src/icons/icon-16.png",
-                  "32":  "GitPulse/src/icons/icon-32.png",
-                  "48":  "GitPulse/src/icons/icon-48.png",
-                  "128":  "GitPulse/src/icons/icon-128.png"
+                  "16":  "src/icon.svg",
+                  "32":  "src/icon.svg",
+                  "48":  "src/icon.svg",
+                  "128":  "src/icon.svg"
               },
     "browser_specific_settings":  {
                                       "gecko":  {
-                                                    "id":  "gitpulse@example.com",
-                                                    "strict_min_version":  "109.0",
-                                                    "data_collection_permissions":  {
-                                                                                    "required":  [ "websiteContent" ],
-                                                                                    "optional":  [ ]
-                                                                                }
+                                                    "id":  "boilerplate@example.com",
+                                                    "strict_min_version":  "109.0"
                                                 }
                                   }
 }
