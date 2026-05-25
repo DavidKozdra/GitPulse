@@ -2,43 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extension Boilerplate</title>
+  <title>Repo Checker Config</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div class="popup-container">
-    <!-- Header -->
-    <div class="popup-header">
-      <div class="header-content">
-        <a href="#" target="_blank" class="logo-link" aria-label="Extension Boilerplate">
-          <img src="./icon.svg" alt="Extension Boilerplate" class="logo">
-        </a>
-        <div class="header-text">
-          <h1 class="popup-title">Extension Boilerplate</h1>
-          <p class="popup-subtitle">Copy tab URLs</p>
-        </div>
+  <div class="card">
+    
+    <a href="https://github.com/DavidKozdra/GitPulse">
+    <img src="./icon.png" alt="icon" style="width:48px; height:48px;"> </a>
+    <h2>Repo Checker Config</h2>
+    
+    <div class="forms-container"> 
+
+    </div>
+      <div class="form-group">
+      <label for="pat">GitHub PAT</label>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input type="password" id="pat" maxlength="100" style="flex:1;" />
+        <button type="button" id="togglePat" style="padding: 6px 10px; cursor: pointer;">👁️</button>
       </div>
     </div>
+    
+    <button id="saveBtn">Save</button>
 
-    <!-- Main Content -->
-    <div class="popup-content">
-      <div class="section">
-        <div class="section-header">
-          <h3 class="section-title">Actions</h3>
-        </div>
-        <button id="copySelectedBtn" class="popup-btn">Copy selected tabs</button>
-        <button id="copyAllBtn" class="popup-btn popup-btn-secondary">Copy all tabs</button>
-        <p class="popup-body">Use the keyboard shortcut or the right-click menu for selected tabs.</p>
-      </div>
-    </div>
 
-    <div class="popup-footer">
-      <span class="popup-footer-note" id="statusText">Ready</span>
-    </div>
+    <button id="clearBtn">Reset</button>
   </div>
 
+  <script src="emoji.js"></script>
   <script src="popup.js"></script>
   <script src="compat.js"></script>
+  <script src="config.js"></script>
 </body>
 </html>

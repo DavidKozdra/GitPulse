@@ -1,22 +1,21 @@
 {
-  "name": "extension-boilerplate",
+  "name": "gitpulse",
   "version": "1.0.0",
-  "description": "browser extension boilerplate",
+  "description": "chrome extension to measure and alert about archived repos",
   "keywords": [
-    "browser",
-    "extension",
-    "boilerplate"
+    "chrome",
+    "extention"
   ],
-  "homepage": "",
+  "homepage": "https://github.com/DavidKozdra/GitPulse#readme",
   "bugs": {
-    "url": ""
+    "url": "https://github.com/DavidKozdra/GitPulse/issues"
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/DavidKozdra/GitPulse.git"
   },
   "license": "ISC",
-  "author": "",
+  "author": "David Kozdra",
   "type": "commonjs",
   "main": "index.js",
   "scripts": {

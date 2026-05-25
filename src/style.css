@@ -1,157 +1,247 @@
+/* -----------------------------------
+   THEME VARIABLES
+----------------------------------- */
 :root {
-  --body-bg: #f3f4f6;
-  --popup-bg: #ffffff;
-  --header-bg: #ffffff;
-  --section-bg: #f8fafc;
-  --card-text: #111827;
-  --label-text: #4b5563;
-  --subtitle-text: #6b7280;
-  --input-bg: #ffffff;
-  --input-border: #d1d5db;
-  --input-focus-border: #2563eb;
-  --input-focus-shadow: rgba(37, 99, 235, 0.15);
-  --button-primary-bg: #111827;
-  --button-primary-hover: #1f2937;
-  --button-secondary-bg: #e5e7eb;
-  --button-secondary-hover: #d1d5db;
-  --divider-color: #e5e7eb;
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --banner-bg: #222;
+  --banner-text: #fff;
+  --banner-button-bg: rgba(255, 255, 255, 0.2);
+  --banner-button-hover: rgba(255, 255, 255, 0.4);
+
+  --body-bg: #121212;
+  --card-bg: #1e1e1e;
+  --card-text: #e0e0e0;
+  --label-text: #bbb;
+  --input-bg: #2c2c2c;
+  --input-border: #444;
+  --input-focus-border: #bb86fc;
+  --input-focus-shadow: rgba(187, 134, 252, 0.3);
+  --button-bg: #bb86fc;
+  --button-hover-bg: #985eff;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --body-bg: #0b1020;
-    --popup-bg: #111827;
-    --header-bg: #111827;
-    --section-bg: #0f172a;
-    --card-text: #f9fafb;
-    --label-text: #cbd5e1;
-    --subtitle-text: #94a3b8;
-    --input-bg: #0b1220;
-    --input-border: #334155;
-    --input-focus-border: #60a5fa;
-    --input-focus-shadow: rgba(96, 165, 250, 0.2);
-    --button-primary-bg: #f9fafb;
-    --button-primary-hover: #e5e7eb;
-    --button-secondary-bg: #1f2937;
-    --button-secondary-hover: #334155;
-    --divider-color: #1f2937;
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --banner-bg: #f5f5f5;
+    --banner-text: #111;
+    --banner-button-bg: rgba(0, 0, 0, 0.1);
+    --banner-button-hover: rgba(0, 0, 0, 0.2);
+
+    --body-bg: #f5f5f5;
+    --card-bg: #fff;
+    --card-text: #333;
+    --label-text: #555;
+    --input-bg: #fafafa;
+    --input-border: #ccc;
+    --input-focus-border: #6200ee;
+    --input-focus-shadow: rgba(98, 0, 238, 0.2);
+    --button-bg: #6200ee;
+    --button-hover-bg: #3700b3;
   }
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* -----------------------------------
+   GLOBAL STYLES
+----------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+
+* { box-sizing: border-box; }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Roboto', sans-serif;
   background: var(--body-bg);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  min-width: 100vw;
+  padding: 40px 20px;
   color: var(--card-text);
-  width: 360px;
-  min-height: 320px;
-  overflow: auto;
 }
 
-.popup-container {
-  width: 100%;
-  min-height: 100vh;
+/* -----------------------------------
+   CARD STYLES
+----------------------------------- */
+.card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  width: 480px;
+  padding: 30px;
+}
+
+h2 {
+  margin-top: 0;
+  font-weight: 500;
+  color: var(--card-text);
+  text-align: center;
+}
+
+.form-group {
   display: flex;
   flex-direction: column;
-  background: var(--popup-bg);
+  margin-top: 16px;
 }
 
-.popup-header {
-  background: var(--header-bg);
-  padding: 20px;
-  border-bottom: 1px solid var(--divider-color);
-  flex-shrink: 0;
+.form-group label {
+  font-weight: 500;
+  color: var(--label-text);
+  margin-bottom: 6px;
 }
 
-.header-content {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo-link {
-  display: block;
-  flex-shrink: 0;
-  line-height: 0;
-}
-
-.logo {
-  width: 40px;
-  height: 40px;
+.form-group input {
+  padding: 10px 14px;
   border-radius: 8px;
-}
-
-.popup-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 0 2px 0;
-}
-
-.popup-subtitle {
-  font-size: 13px;
-  color: var(--subtitle-text);
-}
-
-.popup-content {
-  flex: 1;
-  padding: 16px 20px;
-}
-
-.section-title {
+  border: 1px solid var(--input-border);
+  outline: none;
   font-size: 14px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
-}
-
-.popup-body {
-  color: var(--subtitle-text);
-  line-height: 1.6;
-}
-
-.popup-btn {
-  width: 100%;
-  border: 0;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--button-primary-bg);
+  background: var(--input-bg);
   color: var(--card-text);
-  margin-bottom: 10px;
+  transition: 0.3s;
 }
 
-.popup-btn-secondary {
-  background: var(--button-secondary-bg);
+.form-group input:focus {
+  border-color: var(--input-focus-border);
+  box-shadow: 0 2px 8px var(--input-focus-shadow);
+  background: var(--card-bg);
 }
 
-.popup-btn:hover {
-  background: var(--button-primary-hover);
+/* Button */
+button {
+  margin-top: 24px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--button-bg);
+  cursor: pointer;
+  transition: 0.3s;
 }
 
-.popup-btn-secondary:hover {
-  background: var(--button-secondary-hover);
-}
+button:hover { background: var(--button-hover-bg); }
 
-.popup-footer {
+/* -----------------------------------
+   BANNER STYLES
+----------------------------------- */
+.my-banner {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 16px 20px 20px;
-  border-top: 1px solid var(--divider-color);
+  justify-content: space-between;
+
+  max-width: 400px;
+  margin: 12px auto;
+  padding: 10px 16px;
+
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--banner-text);
+  background-color: var(--banner-bg);
+
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+  transform: translateY(-20px);
+  z-index: 9999;
+  position: relative;
 }
 
-.popup-footer-note {
-  color: var(--subtitle-text);
-  font-size: 13px;
+.my-banner.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.my-banner button {
+  background: var(--banner-button-bg);
+  border: none;
+  color: var(--banner-text);
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  transition: background 0.2s ease;
+}
+
+.my-banner button:hover {
+  background: var(--banner-button-hover);
+}
+
+.my-banner.active a {
+  background-color: var(--banner-text);
+  color: var(--banner-bg);
+}
+
+/* Responsive */
+@media (max-width: 500px) {
+  .card { width: 100%; padding: 20px; }
+}
+
+
+.clearBtn {
+  background-color: rgb(180, 53, 53);
+}
+
+/* -----------------------------------
+   EMOJI PICKER
+----------------------------------- */
+.emoji-btn {
+  width: auto !important;
+  margin-top: 0 !important;
+  background: var(--button-bg);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.emoji-picker {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 260px;
+  background: var(--card-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  padding: 8px;
+  z-index: 10000;
+}
+
+.emoji-search {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  outline: none;
+  background: var(--input-bg);
+  color: var(--card-text);
+  margin-bottom: 8px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.emoji-choice {
+  width: auto !important;
+  margin-top: 0 !important;
+  padding: 6px !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--card-text) !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+}
+
+.emoji-choice:hover {
+  border-color: var(--input-border) !important;
+  background: var(--input-bg) !important;
 }
