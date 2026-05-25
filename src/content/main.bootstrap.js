@@ -88,13 +88,27 @@ async function bootstrap() {
   }
 
   // Install config change listener once per page context.
-  if (!window.__gitpulseConfigListenerInstalled) {
-    window.__gitpulseConfigListenerInstalled = true;
+  window.__gp = window.__gp || {};
+  if (!window.__gp.configListenerInstalled) {
+    let _configDebounceTimer = null;
+    const storageOnChanged = ext?.storage?.onChanged;
+    if (!storageOnChanged || typeof storageOnChanged.addListener !== "function") {
+      throw new Error("Storage change listener unavailable");
+    }
 
-    ext.storage.onChanged.addListener((changes, area) => {
+    storageOnChanged.addListener((changes, area) => {
       if (area !== "local") return;
       if (!changes.repoCheckerConfig) return;
 
+      clearTimeout(_configDebounceTimer);
+      _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
+    });
+
+    window.__gp.configListenerInstalled = true;
+  }
+}
+
+function _handleConfigChange(changes, mergeConfig) {
       const prev = config;
       config = mergeConfig(changes.repoCheckerConfig.newValue);
 
@@ -159,6 +173,4 @@ async function bootstrap() {
 
       try { __linkStatusCache.clear(); } catch { /* ignore */ }
       try { markRepoLinks(); } catch { /* ignore */ }
-    });
-  }
 }

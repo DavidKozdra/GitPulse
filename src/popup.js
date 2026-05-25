@@ -70,18 +70,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     const field = config[key];
 
     const formGroup = document.createElement("div");
-    formGroup.className = "form-group";
+    formGroup.className = "form-group-row";
     formGroup.style.display = "flex";
     formGroup.style.alignItems = "center";
     formGroup.style.justifyContent = "space-between";
-    formGroup.style.flexDirection = "row";
+    formGroup.style.gap = "12px";
     formGroup.style.position = "relative";
+    formGroup.style.padding = "8px 12px";
+    formGroup.style.background = "var(--section-bg)";
+    formGroup.style.borderRadius = "6px";
+    formGroup.style.border = "1px solid var(--divider-color)";
 
     // Label
     const label = document.createElement("label");
     label.htmlFor = key;
     label.textContent = field.name || key;
+    label.className = "form-label";
     label.style.flex = "1";
+    label.style.margin = "0";
+    label.style.fontSize = "13px";
+    label.style.cursor = "pointer";
 
     // Value input
     let input;
@@ -90,21 +98,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       input.type = "checkbox";
       input.checked = !!field.value;
       input.style.flex = "0";
-      input.style.marginLeft = "8px";
+      input.style.cursor = "pointer";
     } else {
       input = document.createElement("input");
       input.type = field.type === "number" ? "number" : "text";
       input.value = field.value;
+      input.className = "form-input";
       input.style.flex = "1";
+      input.style.maxWidth = "120px";
       if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
     }
     input.id = key;
 
-    // Toggle checkbox
+    // Toggle checkbox (enable/disable this setting)
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
     toggle.checked = field.active;
-    toggle.style.marginLeft = "8px";
+    toggle.className = "toggle-checkbox";
+    toggle.style.flex = "0";
+    toggle.style.cursor = "pointer";
+    toggle.title = "Enable/disable this setting";
     toggle.addEventListener("change", () => field.active = toggle.checked);
 
     formGroup.appendChild(label);

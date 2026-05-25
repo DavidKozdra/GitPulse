@@ -81,9 +81,21 @@
     return () => chrome.runtime.onMessage.removeListener(wrapper);
   }
 
+  // storage.onChanged shim
+  const onChanged = {
+    addListener(fn) {
+      const handler = (changes, area) => fn(changes, area);
+      if (hasBrowser) {
+        browser.storage.onChanged.addListener(handler);
+      } else if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener(handler);
+      }
+    }
+  };
+
   const ext = {
     sendMessage,
-    storage: { local: { get: storageGet, set: storageSet, remove: storageRemove } },
+    storage: { local: { get: storageGet, set: storageSet, remove: storageRemove }, onChanged },
     tabs: { query: tabsQuery },
     runtime: {
       addOnMessageListener: addOnMessageListener,

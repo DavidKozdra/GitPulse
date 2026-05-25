@@ -98,13 +98,12 @@ function ToggleBanner(status, Toggle) {
 
   // EXPECTS an existing banner element in the HTML
   const banner = document.getElementById("my-banner");
-  const mainText = banner.querySelector(".banner-main-text");
-  const configLink = banner.querySelector(".banner-config-link");
-
   if (!banner) {
     console.error("Banner element #my-banner not found in DOM.");
     return;
   }
+  const mainText = banner.querySelector(".banner-main-text");
+  const configLink = banner.querySelector(".banner-config-link");
 
   // Toggle visibility
   banner.style.display = Toggle ? "flex" : "none";
@@ -162,6 +161,8 @@ function ToggleBanner(status, Toggle) {
 }
 
 // Expose for bootstrap (config changes)
+globalThis.__gp = globalThis.__gp || {};
+window.__gp = globalThis.__gp;
 window.gitpulseRefreshBanner = () => {
   const banner = document.getElementById("my-banner");
   if (!banner) return;
@@ -171,7 +172,11 @@ window.gitpulseRefreshBanner = () => {
     ToggleBanner(status, banner.style.display !== "none");
   }
 };
-document.getElementById("banner-close").onclick = () => {
-  document.getElementById("my-banner").style.display = "none";
-};
+window.__gp.refreshBanner = window.gitpulseRefreshBanner;
+const bannerCloseBtn = document.getElementById("banner-close");
+if (bannerCloseBtn) {
+  bannerCloseBtn.onclick = () => {
+    document.getElementById("my-banner").style.display = "none";
+  };
+}
 
