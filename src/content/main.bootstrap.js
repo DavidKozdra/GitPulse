@@ -25,12 +25,12 @@ async function safeBootstrap() {
   try {
     await bootstrap();
   } catch (err) {
-    console.warn("Bootstrap failed due to context loss, retrying...", err);
+    console.warn("GitPulse bootstrap failed, retrying...", err);
     await delay(100);
     try {
       await bootstrap();
     } catch (err2) {
-      console.error("Bootstrap permanently failed:", err2);
+      console.error("GitPulse bootstrap failed:", err2);
     }
   }
 }
@@ -93,18 +93,28 @@ async function bootstrap() {
     let _configDebounceTimer = null;
     const storageOnChanged = ext?.storage?.onChanged;
     if (!storageOnChanged || typeof storageOnChanged.addListener !== "function") {
-      throw new Error("Storage change listener unavailable");
+      console.warn("GitPulse config live updates unavailable: storage.onChanged missing.");
+      window.__gp.configListenerInstalled = true;
+      return;
     }
 
-    storageOnChanged.addListener((changes, area) => {
-      if (area !== "local") return;
-      if (!changes.repoCheckerConfig) return;
+    try {
+      const removeConfigListener = storageOnChanged.addListener((changes, area) => {
+        if (area !== "local") return;
+        if (!changes.repoCheckerConfig) return;
 
-      clearTimeout(_configDebounceTimer);
-      _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
-    });
+        clearTimeout(_configDebounceTimer);
+        _configDebounceTimer = setTimeout(() => _handleConfigChange(changes, mergeConfig), 300);
+      });
 
-    window.__gp.configListenerInstalled = true;
+      if (typeof removeConfigListener === "function") {
+        window.__gp.removeConfigListener = removeConfigListener;
+      }
+      window.__gp.configListenerInstalled = true;
+    } catch (err) {
+      console.warn("GitPulse config live updates unavailable.", err);
+      window.__gp.configListenerInstalled = true;
+    }
   }
 }
 

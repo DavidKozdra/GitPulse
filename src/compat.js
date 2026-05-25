@@ -3,13 +3,16 @@
 // - lastError-aware for chrome callbacks
 // - normalized onMessage.addListener/removeListener with Promise support
 (function () {
-  const hasBrowser = typeof browser !== 'undefined' && !!browser.runtime;
+  const root = typeof globalThis !== 'undefined' ? globalThis : window;
+  const getBrowser = () => root.browser;
+  const getChrome = () => root.chrome;
+  const isFn = (value) => typeof value === 'function';
 
-  function withChromeCallback(fn) {
+  function withChromeCallback(fn, runtime) {
     return new Promise((resolve, reject) => {
       try {
         fn((res) => {
-          const err = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) ? chrome.runtime.lastError : null;
+          const err = runtime?.lastError || null;
           if (err) return reject(err);
           resolve(res);
         });
@@ -20,17 +23,23 @@
   }
 
   async function sendMessage(message, { timeoutMs } = {}) {
-    if (hasBrowser) {
+    const browserRuntime = getBrowser()?.runtime;
+    if (isFn(browserRuntime?.sendMessage)) {
       if (timeoutMs) {
         return Promise.race([
-          browser.runtime.sendMessage(message),
+          browserRuntime.sendMessage(message),
           new Promise((_, rej) => setTimeout(() => rej(new Error('ext.sendMessage timeout')), timeoutMs))
         ]);
       }
-      return browser.runtime.sendMessage(message);
+      return browserRuntime.sendMessage(message);
     }
 
-    const p = withChromeCallback(cb => chrome.runtime.sendMessage(message, cb));
+    const chromeRuntime = getChrome()?.runtime;
+    if (!isFn(chromeRuntime?.sendMessage)) {
+      throw new Error('runtime.sendMessage unavailable');
+    }
+
+    const p = withChromeCallback(cb => chromeRuntime.sendMessage(message, cb), chromeRuntime);
     if (timeoutMs) {
       return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('ext.sendMessage timeout')), timeoutMs))]);
     }
@@ -38,30 +47,57 @@
   }
 
   function storageGet(keys) {
-    if (hasBrowser) return browser.storage.local.get(keys);
-    return withChromeCallback(cb => chrome.storage.local.get(keys, cb));
+    const browserLocal = getBrowser()?.storage?.local;
+    if (isFn(browserLocal?.get)) return browserLocal.get(keys);
+
+    const chromeStorage = getChrome()?.storage;
+    if (!isFn(chromeStorage?.local?.get)) {
+      throw new Error('storage.local.get unavailable');
+    }
+    return withChromeCallback(cb => chromeStorage.local.get(keys, cb), getChrome()?.runtime);
   }
 
   function storageSet(obj) {
-    if (hasBrowser) return browser.storage.local.set(obj);
-    return withChromeCallback(cb => chrome.storage.local.set(obj, cb));
+    const browserLocal = getBrowser()?.storage?.local;
+    if (isFn(browserLocal?.set)) return browserLocal.set(obj);
+
+    const chromeStorage = getChrome()?.storage;
+    if (!isFn(chromeStorage?.local?.set)) {
+      throw new Error('storage.local.set unavailable');
+    }
+    return withChromeCallback(cb => chromeStorage.local.set(obj, cb), getChrome()?.runtime);
   }
 
   function storageRemove(keys) {
-    if (hasBrowser) return browser.storage.local.remove(keys);
-    return withChromeCallback(cb => chrome.storage.local.remove(keys, cb));
+    const browserLocal = getBrowser()?.storage?.local;
+    if (isFn(browserLocal?.remove)) return browserLocal.remove(keys);
+
+    const chromeStorage = getChrome()?.storage;
+    if (!isFn(chromeStorage?.local?.remove)) {
+      throw new Error('storage.local.remove unavailable');
+    }
+    return withChromeCallback(cb => chromeStorage.local.remove(keys, cb), getChrome()?.runtime);
   }
 
   function tabsQuery(queryInfo) {
-    if (hasBrowser) return browser.tabs.query(queryInfo);
-    return withChromeCallback(cb => chrome.tabs.query(queryInfo, cb));
+    const browserTabs = getBrowser()?.tabs;
+    if (isFn(browserTabs?.query)) return browserTabs.query(queryInfo);
+
+    const chromeApi = getChrome();
+    if (!isFn(chromeApi?.tabs?.query)) {
+      throw new Error('tabs.query unavailable');
+    }
+    return withChromeCallback(cb => chromeApi.tabs.query(queryInfo, cb), chromeApi.runtime);
   }
 
   // Normalize onMessage listeners. Returns an unsubscribe function.
   function addOnMessageListener(handler) {
-    if (hasBrowser) {
-      browser.runtime.onMessage.addListener(handler);
-      return () => browser.runtime.onMessage.removeListener(handler);
+    const browserOnMessage = getBrowser()?.runtime?.onMessage;
+    if (isFn(browserOnMessage?.addListener)) {
+      browserOnMessage.addListener(handler);
+      return () => {
+        if (isFn(browserOnMessage.removeListener)) browserOnMessage.removeListener(handler);
+      };
     }
 
     const wrapper = (message, sender, sendResponse) => {
@@ -77,22 +113,42 @@
       return false;
     };
 
-    chrome.runtime.onMessage.addListener(wrapper);
-    return () => chrome.runtime.onMessage.removeListener(wrapper);
+    const chromeOnMessage = getChrome()?.runtime?.onMessage;
+    if (!isFn(chromeOnMessage?.addListener)) {
+      throw new Error('runtime.onMessage unavailable');
+    }
+
+    chromeOnMessage.addListener(wrapper);
+    return () => {
+      if (isFn(chromeOnMessage.removeListener)) chromeOnMessage.removeListener(wrapper);
+    };
   }
 
   // storage.onChanged shim
   const onChanged = {
     addListener(fn) {
       const handler = (changes, area) => fn(changes, area);
-      if (hasBrowser) {
-        browser.storage.onChanged.addListener(handler);
-      } else if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-        chrome.storage.onChanged.addListener(handler);
+      const browserOnChanged = getBrowser()?.storage?.onChanged;
+      if (isFn(browserOnChanged?.addListener)) {
+        browserOnChanged.addListener(handler);
+        return () => {
+          if (isFn(browserOnChanged.removeListener)) browserOnChanged.removeListener(handler);
+        };
       }
+
+      const chromeOnChanged = getChrome()?.storage?.onChanged;
+      if (isFn(chromeOnChanged?.addListener)) {
+        chromeOnChanged.addListener(handler);
+        return () => {
+          if (isFn(chromeOnChanged.removeListener)) chromeOnChanged.removeListener(handler);
+        };
+      }
+
+      throw new Error('storage.onChanged unavailable');
     }
   };
 
+  const runtimeApi = getBrowser()?.runtime || getChrome()?.runtime;
   const ext = {
     sendMessage,
     storage: { local: { get: storageGet, set: storageSet, remove: storageRemove }, onChanged },
@@ -100,12 +156,12 @@
     runtime: {
       addOnMessageListener: addOnMessageListener,
       // convenience: raw access for advanced usage if needed
-      raw: hasBrowser ? browser.runtime : (typeof chrome !== 'undefined' ? chrome.runtime : undefined),
-      id: (hasBrowser ? browser.runtime?.id : (typeof chrome !== 'undefined' ? chrome.runtime?.id : undefined))
+      raw: runtimeApi,
+      id: runtimeApi?.id
     }
   };
 
   // Use a namespaced global to reduce collision risk
-  if (!window.__gitpulse_ext) window.__gitpulse_ext = ext;
+  window.__gitpulse_ext = ext;
   window.ext = window.__gitpulse_ext;
 })();

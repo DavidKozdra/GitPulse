@@ -55,6 +55,8 @@ https://chromewebstore.google.com/detail/gitpulse/fiamhceclfnbckgpnmpkhldgbdhiam
 * [x] Gitlab and npm and other repo systems maybe even docker ? 
 * [X] Dark mode support for the banner and settings system.
 
+-- Product is considered in a final released state 
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request if you’d like to improve GitPulse.
