@@ -152,6 +152,68 @@ describe('smartClearCache', () => {
   });
 });
 
+describe('fetchRepoStatus cache behavior', () => {
+  beforeEach(() => {
+    Object.keys(storage).forEach(k => delete storage[k]);
+    fetch.mockReset();
+  });
+
+  test('returns cached repo status by default', async () => {
+    storage['repoCache:codeberg.org/owner/repo'] = {
+      isActive: false,
+      details: { source: 'cache' },
+      checkedAt: Date.now(),
+      v: 2,
+    };
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo' },
+      {},
+      sendResponse
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: true,
+      result: { status: false, details: { source: 'cache' } },
+      fromCache: true,
+    });
+  });
+
+  test('ignores cached repo status when forceRefresh is true', async () => {
+    storage['repoCache:codeberg.org/owner/repo'] = {
+      isActive: false,
+      details: { source: 'cache' },
+      checkedAt: Date.now(),
+      v: 2,
+    };
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo', forceRefresh: true },
+      {},
+      sendResponse
+    );
+
+    expect(fetch).toHaveBeenCalledWith('https://codeberg.org/api/v1/repos/owner/repo');
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      fromCache: false,
+      result: expect.objectContaining({ status: true }),
+    }));
+    expect(storage['repoCache:codeberg.org/owner/repo'].isActive).toBe(true);
+  });
+});
+
 describe('withinDays', () => {
   test('returns true for recent dates', () => {
     const recent = new Date().toISOString();

@@ -1,4 +1,4 @@
-const { isRepoUrl, getActiveConfigMetrics } = require('../content/main.helpers');
+const { isRepoUrl, getActiveConfigMetrics, isReloadNavigation } = require('../content/main.helpers');
 
 describe('isRepoUrl control tests', () => {
   test('accepts typical GitHub repo URL', () => {
@@ -45,6 +45,49 @@ describe('getActiveConfigMetrics control tests', () => {
   });
 });
 
+describe('isReloadNavigation control tests', () => {
+  const originalPerformance = global.performance;
+
+  afterEach(() => {
+    Object.defineProperty(global, 'performance', {
+      value: originalPerformance,
+      configurable: true,
+    });
+  });
+
+  function setPerformance(value) {
+    Object.defineProperty(global, 'performance', {
+      value,
+      configurable: true,
+    });
+  }
+
+  test('returns true for reload navigation timing entries', () => {
+    setPerformance({
+      getEntriesByType: jest.fn(() => [{ type: 'reload' }]),
+    });
+
+    expect(isReloadNavigation()).toBe(true);
+  });
+
+  test('returns false for non-reload navigation timing entries', () => {
+    setPerformance({
+      getEntriesByType: jest.fn(() => [{ type: 'navigate' }]),
+    });
+
+    expect(isReloadNavigation()).toBe(false);
+  });
+
+  test('falls back to legacy performance.navigation reload type', () => {
+    setPerformance({
+      getEntriesByType: jest.fn(() => []),
+      navigation: { type: 1 },
+    });
+
+    expect(isReloadNavigation()).toBe(true);
+  });
+});
+
 describe('isRepoActive control tests', () => {
   const { isRepoActive } = require('../content/main.helpers');
 
@@ -59,6 +102,24 @@ describe('isRepoActive control tests', () => {
     expect(sendMessage).toHaveBeenCalledWith({
       action: 'fetchRepoStatus',
       url: 'https://github.com/octocat/Hello-World',
+    });
+    expect(result).toBe(true);
+  });
+
+  test('asks background to force refresh when cache bypass is requested', async () => {
+    const sendMessage = jest.fn(() =>
+      Promise.resolve({ ok: true, result: { status: true } })
+    );
+    global.ext = { sendMessage };
+
+    const result = await isRepoActive('https://github.com/octocat/Hello-World', {
+      bypassCache: true,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'fetchRepoStatus',
+      url: 'https://github.com/octocat/Hello-World',
+      forceRefresh: true,
     });
     expect(result).toBe(true);
   });
@@ -82,4 +143,3 @@ describe('isRepoActive control tests', () => {
   });
 }
 );
-

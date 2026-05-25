@@ -482,7 +482,8 @@ async function handleMessage(message, sender, sendResponse) {
         })();
         if (!cacheKey) { sendResponse({ ok: false, error: "Invalid URL" }); return; }
 
-        const cached = await readCache(cacheKey);
+        const forceRefresh = message.forceRefresh === true;
+        const cached = forceRefresh ? null : await readCache(cacheKey);
         if (cached) {
           sendResponse({ ok: true, result: { status: cached.isActive, details: cached.details }, fromCache: true });
           return;

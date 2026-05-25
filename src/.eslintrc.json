@@ -20,6 +20,7 @@
     "ToggleBanner": "readonly",
     "isGithubRepoPrivate": "readonly",
     "isRepoActive": "readonly",
+    "isReloadNavigation": "readonly",
     "markRepoLinks": "readonly",
     "__linkStatusCache": "readonly",
     "__gp": "writable",

@@ -1,6 +1,7 @@
 // main.bootstrap.js
 (async function init() {
-  await safeBootstrap();
+  const bypassInitialRepoStatusCache = isReloadNavigation();
+  await safeBootstrap({ bypassCacheForCurrentUrl: bypassInitialRepoStatusCache });
 
   let lastUrl = location.href;
 
@@ -21,21 +22,21 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-async function safeBootstrap() {
+async function safeBootstrap(options = {}) {
   try {
-    await bootstrap();
+    await bootstrap(options);
   } catch (err) {
     console.warn("GitPulse bootstrap failed, retrying...", err);
     await delay(100);
     try {
-      await bootstrap();
+      await bootstrap(options);
     } catch (err2) {
       console.error("GitPulse bootstrap failed:", err2);
     }
   }
 }
 
-async function bootstrap() {
+async function bootstrap(options = {}) {
   const mergeConfig = (storedCfg) => {
     const merged = { ...defaultConfig };
     if (storedCfg) {
@@ -70,7 +71,9 @@ async function bootstrap() {
     if (isGithubRepoPrivate()) {
       ToggleBanner("private",true);
     } else {
-      const status = await isRepoActive(currentUrl);
+      const status = await isRepoActive(currentUrl, {
+        bypassCache: options.bypassCacheForCurrentUrl === true
+      });
      
       ToggleBanner(status,true);
     }

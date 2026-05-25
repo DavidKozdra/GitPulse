@@ -2,8 +2,28 @@
 // Shared helpers for the content script (extracted from main.js)
 var rate_limited = false;
 
-async function isRepoActive(url) {
-  const res = await ext.sendMessage({ action: "fetchRepoStatus", url });
+function isReloadNavigation() {
+  try {
+    const perf = typeof performance !== "undefined" ? performance : null;
+    if (!perf) return false;
+
+    if (typeof perf.getEntriesByType === "function") {
+      const navigation = perf.getEntriesByType("navigation")?.[0];
+      if (navigation?.type === "reload") return true;
+      if (navigation?.type && navigation.type !== "reload") return false;
+    }
+
+    return perf.navigation?.type === 1;
+  } catch {
+    return false;
+  }
+}
+
+async function isRepoActive(url, options = {}) {
+  const message = { action: "fetchRepoStatus", url };
+  if (options.bypassCache === true) message.forceRefresh = true;
+
+  const res = await ext.sendMessage(message);
   if (!res || res.ok === false) {
     console.warn("[Repo check] background error", res?.error);
     return false; // fail closed
@@ -13,7 +33,7 @@ async function isRepoActive(url) {
 
 // Export for Node test environment (jest) if available
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { isRepoUrl, getActiveConfigMetrics, isRepoActive };
+  module.exports = { isRepoUrl, getActiveConfigMetrics, isRepoActive, isReloadNavigation };
 }
 
 async function getCacheFromBackground(key) {
