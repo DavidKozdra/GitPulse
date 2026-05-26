@@ -184,18 +184,74 @@ async function runWithConcurrency(tasks, concurrency = 6) {
   return Promise.all(results);
 }
 
+function repoRootKey(hostname, parts) {
+  // Return the canonical "owner/repo" root key for a given host so that
+  // sub-pages of the same repo (e.g. /issues, /pulls, /tree/main/…) share one
+  // status lookup instead of triggering duplicate grades.
+  switch (hostname) {
+    case "github.com":
+    case "gitlab.com":
+    case "codeberg.org":
+    case "bitbucket.org":
+      return hostname + "/" + parts.slice(0, 2).join("/");
+
+    case "git.sr.ht":
+      // Sourcehut: /~user/repo — root is always first two parts
+      return hostname + "/" + parts.slice(0, 2).join("/");
+
+    case "launchpad.net":
+      return hostname + "/" + parts[0];
+
+    case "www.npmjs.com":
+    case "npmjs.com":
+      // /package/name or /package/@scope/name
+      return hostname + "/" + (parts[1].startsWith("@") ? parts.slice(1, 3).join("/") : parts[1]);
+
+    case "hub.docker.com":
+      // /r/org/repo
+      return hostname + "/r/" + parts.slice(1, 3).join("/");
+
+    case "pypi.org":
+      return hostname + "/project/" + parts[1];
+
+    case "crates.io":
+      return hostname + "/crates/" + parts[1];
+
+    case "packagist.org":
+      return hostname + "/packages/" + parts.slice(1, 3).join("/");
+
+    default:
+      return hostname + "/" + parts.slice(0, 2).join("/");
+  }
+}
+
 function dedupeLinks(links) {
-  // Many pages repeat the same repo URL in title, avatar, metadata, and action
-  // links. Dedupe by host+path so each unique repo is checked once, then apply
-  // the result to every matching anchor.
-  const map = new Map(); // key -> array of elements
+  // Dedupe by exact href: one element per unique URL, preferring the link with
+  // the most visible text (name link over icon-only link). This handles pages
+  // like the GitHub dashboard where the avatar <a> and the repo name <a> share
+  // the same href and would otherwise both get a badge.
+  const byHref = new Map(); // exact href -> chosen element
   for (const el of links) {
     const href = el.href;
     if (!href) continue;
     if (!isRepoUrl(href)) continue;
+    if (!byHref.has(href)) {
+      byHref.set(href, el);
+    } else {
+      const current = byHref.get(href);
+      if ((el.textContent || "").trim().length > (current.textContent || "").trim().length) {
+        byHref.set(href, el);
+      }
+    }
+  }
+
+  // Group the winners by repo root key so sub-pages of the same repo share one fetch.
+  const map = new Map(); // rootKey -> array of elements
+  for (const [href, el] of byHref) {
     try {
       const u = new URL(href);
-      const key = u.hostname + u.pathname;
+      const parts = u.pathname.split("/").filter(Boolean);
+      const key = repoRootKey(u.hostname, parts);
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(el);
     } catch {
@@ -222,7 +278,9 @@ async function processUniqueUrls(map) {
     }
 
     tasks.push(async () => {
-      const url = elements[0].href;
+      // Use the root key as the canonical URL so the background always receives
+      // the repo root regardless of which sub-page link was encountered first.
+      const url = "https://" + key;
       let result;
       try {
         result = typeof getRepoStatus === "function"
