@@ -10,7 +10,7 @@ console.log("GitPulse SW started", chrome.runtime?.id);
 // Constants & helpers
 // ---------------------------
 const CACHE_PREFIX = "repoCache:";
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 // Normal status entries live for one day. That keeps browsing fast while still
 // allowing repository activity to become visible without a manual cache clear.
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
@@ -47,6 +47,267 @@ const withinDays = (dateStr, maxDays) => {
 const isString = (x) => typeof x === "string";
 const isPlainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 const DEFAULT_MAX_ACTIVITY_DAYS = 365;
+const DEFAULT_MIN_ACTIVE_SCORE = 70;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+function clampScore(value) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function gradeForScore(score) {
+  const value = clampScore(score);
+  if (value >= 90) return "A";
+  if (value >= 80) return "B";
+  if (value >= 70) return "C";
+  if (value >= 60) return "D";
+  return "F";
+}
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const time = new Date(dateStr).getTime();
+  if (!Number.isFinite(time)) return null;
+  return Math.max(0, (now() - time) / MS_PER_DAY);
+}
+
+function recencyScore(dateStr, maxDays, missingScore = 0) {
+  const ageDays = daysSince(dateStr);
+  if (ageDays === null) return clampScore(missingScore);
+  if (!Number.isFinite(maxDays)) return 100;
+  if (maxDays <= 0) return ageDays <= 0 ? 100 : 0;
+  if (ageDays <= maxDays) return 100;
+  if (ageDays >= maxDays * 2) return 0;
+  return clampScore(100 * (1 - ((ageDays - maxDays) / maxDays)));
+}
+
+function maxCountScore(count, maxCount, missingScore = 0) {
+  if (!Number.isFinite(count)) return clampScore(missingScore);
+  if (!Number.isFinite(maxCount)) return 100;
+  if (maxCount <= 0) return count <= 0 ? 100 : 0;
+  if (count <= maxCount) return 100;
+  if (count >= maxCount * 2) return 0;
+  return clampScore(100 * (1 - ((count - maxCount) / maxCount)));
+}
+
+function scorePart(key, label, score, weight) {
+  return { key, label, score: clampScore(score), weight };
+}
+
+function weightedScore(parts) {
+  const usable = parts.filter((part) => Number.isFinite(part.weight) && part.weight > 0);
+  const totalWeight = usable.reduce((sum, part) => sum + part.weight, 0);
+  if (!totalWeight) return 0;
+  return clampScore(
+    usable.reduce((sum, part) => sum + (clampScore(part.score) * part.weight), 0) / totalWeight
+  );
+}
+
+function minActiveScore(rules = {}) {
+  const score = typeof rules.min_active_score === "number"
+    ? rules.min_active_score
+    : Number(rules.min_active_score);
+  return Number.isFinite(score)
+    ? clampScore(rules.min_active_score)
+    : DEFAULT_MIN_ACTIVE_SCORE;
+}
+
+function finiteNumber(value) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function pickFirst(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function activityDateFromDetails(details = {}) {
+  return pickFirst(
+    details.pushedAt,
+    details.updatedAt,
+    details.pushed_at,
+    details.updated_at,
+    details.last_activity_at,
+    details.lastActivityAt,
+    details.modified,
+    details.lastUpdated
+  );
+}
+
+function isArchivedFromDetails(details = {}) {
+  return details.isArchived === true || details.archived === true;
+}
+
+function normalizeRepoResult(result = {}) {
+  if (!result || typeof result !== "object") return result;
+  const status = result.status !== undefined ? result.status : result.isActive;
+  const details = isPlainObject(result.details) ? result.details : {};
+  return { ...result, status, details };
+}
+
+function booleanScore(value) {
+  if (value === true) return 100;
+  if (value === false) return 0;
+  return null;
+}
+
+function recencyOrFlagScore(dateStr, maxDays, okFlag, missingScore = null) {
+  if (dateStr) return recencyScore(dateStr, maxDays, missingScore ?? 0);
+  const fromFlag = booleanScore(okFlag);
+  return fromFlag === null ? missingScore : fromFlag;
+}
+
+function pushOkFromDetails(details = {}) {
+  if (typeof details.pushOk === "boolean") return details.pushOk;
+  if (typeof details.push_ok === "boolean") return details.push_ok;
+  return undefined;
+}
+
+function flagFromDetails(details = {}, ...keys) {
+  for (const key of keys) {
+    if (typeof details[key] === "boolean") return details[key];
+  }
+  return undefined;
+}
+
+function calculateRepoScore(details = {}, rules = {}) {
+  if (isArchivedFromDetails(details)) {
+    return {
+      score: 0,
+      grade: "F",
+      parts: [scorePart("archived", "Archived", 0, 100)],
+      available: true,
+    };
+  }
+
+  const parts = [];
+  const activityScore = recencyOrFlagScore(
+    activityDateFromDetails(details),
+    maxActivityDays(rules),
+    pushOkFromDetails(details),
+    null
+  );
+  if (activityScore !== null) {
+    parts.push(scorePart(
+      "activity",
+      "Recent activity",
+      activityScore,
+      50
+    ));
+  }
+
+  if (Number.isFinite(rules.open_prs_max)) {
+    const openPrCount = finiteNumber(details.openPrCount ?? details.open_pr_count);
+    const openPrFlag = flagFromDetails(details, "openPrsOk", "open_prs_ok");
+    if (openPrCount !== null || typeof openPrFlag === "boolean") {
+      parts.push(scorePart(
+        "openPrs",
+        "Open PR load",
+        openPrCount !== null
+          ? maxCountScore(openPrCount, rules.open_prs_max, 0)
+          : booleanScore(openPrFlag),
+        10
+      ));
+    }
+  }
+  if (Number.isFinite(rules.last_closed_pr_max_days)) {
+    const lastClosedPrAt = details.lastClosedPrAt || details.last_closed_pr_at;
+    const lastClosedPrFlag = flagFromDetails(details, "lastClosedPrOk", "last_closed_pr_ok");
+    if (lastClosedPrAt || typeof lastClosedPrFlag === "boolean") {
+      parts.push(scorePart(
+        "closedPr",
+        "Closed PR recency",
+        recencyOrFlagScore(lastClosedPrAt, rules.last_closed_pr_max_days, lastClosedPrFlag, 100),
+        10
+      ));
+    }
+  }
+  if (Number.isFinite(rules.max_issues_update_time)) {
+    const lastIssueUpdatedAt = details.lastIssueUpdatedAt || details.last_issue_updated_at;
+    const issuesFlag = flagFromDetails(details, "issuesActivityOk", "issues_activity_ok");
+    if (lastIssueUpdatedAt || typeof issuesFlag === "boolean") {
+      parts.push(scorePart(
+        "issues",
+        "Issue activity",
+        recencyOrFlagScore(lastIssueUpdatedAt, rules.max_issues_update_time, issuesFlag, 100),
+        10
+      ));
+    }
+  }
+  if (Number.isFinite(rules.max_days_since_last_release)) {
+    const lastReleaseAt = details.lastReleaseAt || details.last_release_at;
+    const releaseFlag = flagFromDetails(details, "releaseOk", "release_ok");
+    if (lastReleaseAt || typeof releaseFlag === "boolean") {
+      parts.push(scorePart(
+        "release",
+        "Release recency",
+        recencyOrFlagScore(lastReleaseAt, rules.max_days_since_last_release, releaseFlag, 0),
+        10
+      ));
+    }
+  }
+  if (Number.isFinite(rules.max_open_issue_age)) {
+    const oldestOpenIssueCreatedAt = details.oldestOpenIssueCreatedAt || details.oldest_open_issue_created_at;
+    const openIssueAgeFlag = flagFromDetails(details, "openIssueAgeOk", "open_issue_age_ok");
+    if (oldestOpenIssueCreatedAt || typeof openIssueAgeFlag === "boolean") {
+      parts.push(scorePart(
+        "openIssueAge",
+        "Open issue age",
+        recencyOrFlagScore(
+          oldestOpenIssueCreatedAt,
+          rules.max_open_issue_age,
+          openIssueAgeFlag,
+          100
+        ),
+        10
+      ));
+    }
+  }
+
+  if (!parts.length) {
+    return { score: null, grade: null, parts: [], available: false };
+  }
+
+  const score = weightedScore(parts);
+  return { score, grade: gradeForScore(score), parts, available: true };
+}
+
+function attachScore(result, rules = {}) {
+  const normalized = normalizeRepoResult(result);
+  if (!normalized || (normalized.status !== true && normalized.status !== false)) return normalized;
+
+  const details = normalized.details || {};
+  const scoreResult = isArchivedFromDetails(details)
+    ? { score: 0, grade: "F", parts: [scorePart("archived", "Archived", 0, 100)], available: true }
+    : (() => {
+        const providedScore = finiteNumber(normalized.score ?? details.score);
+        if (providedScore === null) return calculateRepoScore(details, rules);
+        return {
+          score: clampScore(providedScore),
+          grade: gradeForScore(providedScore),
+          parts: Array.isArray(details.scoreParts) ? details.scoreParts : [],
+          available: true,
+        };
+    })();
+  const canUseScoreForStatus = rules.score_decides_status === true && scoreResult.available === true;
+  const activeByScore = isArchivedFromDetails(details) ? false : scoreResult.score >= minActiveScore(rules);
+  const status = canUseScoreForStatus ? activeByScore : normalized.status;
+
+  return {
+    ...normalized,
+    status,
+    ...(scoreResult.available ? { score: scoreResult.score, grade: scoreResult.grade } : {}),
+    details: {
+      ...details,
+      ...(scoreResult.available ? { score: scoreResult.score, grade: scoreResult.grade } : {}),
+      minActiveScore: minActiveScore(rules),
+      scoreParts: scoreResult.parts,
+      scoreDecidesStatus: rules.score_decides_status === true,
+      scoreAvailable: scoreResult.available === true,
+    },
+  };
+}
 
 function validateSegment(segment) {
   // URL path pieces are interpolated into remote API URLs. Validate them before
@@ -162,7 +423,12 @@ async function smartClearCache(oldConfig, newConfig) {
   const changedRuleKeys = [];
 
   for (const key of keys) {
-    if (key.startsWith("emoji_")) continue;
+    if (
+      key.startsWith("emoji_") ||
+      key === "grading_enabled" ||
+      key === "marker_display" ||
+      key === "banner_display"
+    ) continue;
 
     const prev = oldConfig[key];
     const next = newConfig[key];
@@ -630,10 +896,16 @@ async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
 
   if (!resp.ok) {
     console.error("Supabase response not ok:", resp.status);
+    if (resp.status === 429 || resp.status === 403) {
+      return rateLimitedStatus("github.com");
+    }
     throw new Error(`Supabase github-status failed: ${resp.status}`);
   }
 
   const data = await resp.json();
+  if (data?.status === "rate_limited" || data?.rateLimited === true) {
+    return rateLimitedStatus("github.com");
+  }
   return data;
 }
 
@@ -653,14 +925,14 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       const repoParts = splitBeforeGitLabMarker(parts);
       if (repoParts.length < 2) throw new Error("Invalid GitLab URL");
       const projectPath = repoParts.map(validateSegment).join("/");
-      return fetchGitlabRepoStatus({ projectPath }, rules);
+      return attachScore(await fetchGitlabRepoStatus({ projectPath }, rules), rules);
     }
 
     case "codeberg.org": {
       if (parts.length < 2) throw new Error("Invalid Codeberg URL");
       const owner = validateSegment(parts[0]);
       const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
-      return fetchCodebergRepoStatus({ owner, repo }, rules);
+      return attachScore(await fetchCodebergRepoStatus({ owner, repo }, rules), rules);
     }
 
     case "github.com": {
@@ -671,20 +943,20 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       
       if (typeof pat === "string" && pat.length > 0) {
         // Authenticated user → use GitHub directly with their PAT
-        return fetchGithubRepoStatus({ owner, repo }, pat, rules);
+        return attachScore(await fetchGithubRepoStatus({ owner, repo }, pat, rules), rules);
       }
       
 
       console.log("no pat use the server")
       // No PAT → use Supabase edge function (server-side token)
-      return fetchGithubRepoStatusViaSupabase({ owner, repo }, rules);
+      return attachScore(await fetchGithubRepoStatusViaSupabase({ owner, repo }, rules), rules);
     }
 
     case "bitbucket.org": {
       if (parts.length < 2) throw new Error("Invalid Bitbucket URL");
       const workspace = validateSegment(parts[0]);
       const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
-      return fetchBitbucketRepoStatus({ workspace, repo }, rules);
+      return attachScore(await fetchBitbucketRepoStatus({ workspace, repo }, rules), rules);
     }
 
     case "www.npmjs.com":
@@ -693,50 +965,50 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       const packageName = parts[1]?.startsWith("@")
         ? validatePackageName(`${parts[1]}/${parts[2] || ""}`)
         : validatePackageName(parts[1]);
-      return fetchNpmPackageStatus({ packageName }, rules);
+      return attachScore(await fetchNpmPackageStatus({ packageName }, rules), rules);
     }
 
     case "hub.docker.com": {
       if (parts[0] !== "r" || parts.length < 3) throw new Error("Invalid Docker Hub URL");
       const namespace = validateSegment(parts[1]);
       const repo = validateSegment(parts[2]);
-      return fetchDockerHubRepoStatus({ namespace, repo }, rules);
+      return attachScore(await fetchDockerHubRepoStatus({ namespace, repo }, rules), rules);
     }
 
     case "pypi.org": {
       if (parts[0] !== "project" || parts.length < 2) throw new Error("Invalid PyPI project URL");
       const project = validatePackageName(parts[1]);
-      return fetchPypiProjectStatus({ project }, rules);
+      return attachScore(await fetchPypiProjectStatus({ project }, rules), rules);
     }
 
     case "crates.io": {
       if (parts[0] !== "crates" || parts.length < 2) throw new Error("Invalid crates.io URL");
       const crate = validatePackageName(parts[1]);
-      return fetchCratesStatus({ crate }, rules);
+      return attachScore(await fetchCratesStatus({ crate }, rules), rules);
     }
 
     case "packagist.org": {
       if (parts[0] !== "packages" || parts.length < 3) throw new Error("Invalid Packagist URL");
       const vendor = validateSegment(parts[1]);
       const packageName = validateSegment(parts[2]);
-      return fetchPackagistStatus({ vendor, packageName }, rules);
+      return attachScore(await fetchPackagistStatus({ vendor, packageName }, rules), rules);
     }
 
     case "git.sr.ht": {
       if (parts.length < 2) throw new Error("Invalid SourceHut URL");
       const owner = validateSegment(parts[0]);
       const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
-      return fetchSourcehutRepoStatus({ owner, repo }, rules);
+      return attachScore(await fetchSourcehutRepoStatus({ owner, repo }, rules), rules);
     }
 
     case "launchpad.net": {
       if (parts.length < 1) throw new Error("Invalid Launchpad URL");
       const project = validateSegment(parts[0]);
-      return fetchLaunchpadStatus({ project }, rules);
+      return attachScore(await fetchLaunchpadStatus({ project }, rules), rules);
     }
 
     default:
-      return unsupportedStatus(hostname);
+      return attachScore(unsupportedStatus(hostname), rules);
   }
 }
 
@@ -779,7 +1051,13 @@ async function handleMessage(message, sender, sendResponse) {
         const item = key ? await readCache(key) : null;
         if (item) {
           console.log(`[Cache] HIT for ${CACHE_PREFIX + key}`);
-          sendResponse({ isActive: item.isActive, fromCache: true, details: item.details });
+          sendResponse({
+            isActive: item.isActive,
+            fromCache: true,
+            details: item.details,
+            score: item.score,
+            grade: item.grade,
+          });
         } else {
           console.log(`[Cache] MISS or STALE for ${CACHE_PREFIX + key}`);
           sendResponse({ isActive: null, fromCache: false });
@@ -896,18 +1174,40 @@ async function handleMessage(message, sender, sendResponse) {
         const forceRefresh = message.forceRefresh === true;
         const cached = forceRefresh ? null : await readCache(cacheKey);
         if (cached) {
-          sendResponse({ ok: true, result: { status: cached.isActive, details: cached.details }, fromCache: true });
+          const cachedResult = { status: cached.isActive, details: cached.details };
+          if (Number.isFinite(cached.score)) cachedResult.score = cached.score;
+          if (typeof cached.grade === "string") cachedResult.grade = cached.grade;
+          sendResponse({
+            ok: true,
+            result: cachedResult,
+            fromCache: true,
+          });
           return;
         }
 
         const rules = await loadActiveRules();
         try {
           const result = await fetchRepoStatusByUrl(message.url, rules);
-          await writeCache(cacheKey, { isActive: result.status, details: result.details });
+          if (result && (result.status === true || result.status === false)) {
+            await writeCache(cacheKey, {
+              isActive: result.status,
+              details: result.details,
+              score: result.score,
+              grade: result.grade,
+            });
+          }
           sendResponse({ ok: true, result, fromCache: false });
         } catch (err) {
-          await writeCache(cacheKey, { isActive: false, details: { error: String(err) } });
-          sendResponse({ ok: true, result: { status: false }, fromCache: false });
+          const errMsg = String(err);
+          const isRateLimit = /rate.limit|429|403/i.test(errMsg);
+          sendResponse({
+            ok: true,
+            result: {
+              status: isRateLimit ? "rate_limited" : false,
+              details: { error: errMsg },
+            },
+            fromCache: false,
+          });
         }
         return;
       }

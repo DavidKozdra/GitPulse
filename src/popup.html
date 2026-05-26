@@ -39,6 +39,41 @@
         </div>
       </div>
 
+      <!-- Preview Section -->
+      <div class="section">
+        <div class="section-header">
+          <h3 class="section-title">Preview</h3>
+        </div>
+        <div class="preview-panel" id="previewPanel">
+          <div class="preview-state-tabs" role="tablist" aria-label="Preview status">
+            <button type="button" class="preview-state-btn active" data-preview-state="active">Active</button>
+            <button type="button" class="preview-state-btn" data-preview-state="inactive">Inactive</button>
+            <button type="button" class="preview-state-btn" data-preview-state="private">Private</button>
+            <button type="button" class="preview-state-btn" data-preview-state="rate_limited">Limited</button>
+          </div>
+
+          <div class="preview-banner-surface">
+            <div class="preview-banner-pill" id="previewBannerPill"></div>
+            <div class="preview-details" id="previewDetails"></div>
+          </div>
+
+          <div class="preview-link-row">
+            <span class="preview-link-label">Link</span>
+            <a href="#" class="preview-link" id="previewLink"></a>
+          </div>
+
+          <div class="preview-score-row">
+            <div class="preview-score-main">
+              <span class="preview-score-value" id="previewScoreValue"></span>
+              <span class="preview-score-label" id="previewScoreLabel"></span>
+            </div>
+            <div class="preview-score-mode" id="previewScoreMode"></div>
+          </div>
+
+          <div class="preview-breakdown" id="previewBreakdown"></div>
+        </div>
+      </div>
+
       <!-- Repository Settings Section -->
       <div class="section">
         <div class="section-header">

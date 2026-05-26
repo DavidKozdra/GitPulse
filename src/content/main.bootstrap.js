@@ -92,7 +92,11 @@ async function bootstrap(options = {}) {
         bypassCache: options.bypassCacheForCurrentUrl === true
       }), details: {}, fromCache: false };
 
-      ToggleBanner(result.status, true, result.details || {}, { fromCache: result.fromCache });
+      ToggleBanner(result.status, true, result.details || {}, {
+        fromCache: result.fromCache,
+        score: result.score,
+        grade: result.grade,
+      });
     }
   } else {
     // Mark repo links on search/discovery pages
@@ -116,7 +120,11 @@ async function bootstrap(options = {}) {
     const result = typeof getRepoStatus === "function"
       ? await getRepoStatus(url, { bypassCache: true })
       : { status: await isRepoActive(url, { bypassCache: true }), details: {}, fromCache: false };
-    ToggleBanner(result.status, true, result.details || {}, { fromCache: false });
+    ToggleBanner(result.status, true, result.details || {}, {
+      fromCache: false,
+      score: result.score,
+      grade: result.grade,
+    });
   };
 
   // Install config change listener once per page context.
@@ -173,14 +181,19 @@ function _handleConfigChange(changes, mergeConfig) {
         if (aActive !== bActive || aValue !== bValue) changedKeys.push(k);
       }
 
-      const emojiOnly = changedKeys.length > 0 && changedKeys.every((k) => k.startsWith("emoji_"));
+      const presentationOnly = changedKeys.length > 0 && changedKeys.every((k) =>
+        k.startsWith("emoji_") ||
+        k === "grading_enabled" ||
+        k === "marker_display" ||
+        k === "banner_display"
+      );
 
       // If the banner is currently visible, refresh it.
       const banner = document.getElementById("my-banner");
       const bannerVisible = !!banner && banner.style.display !== "none";
 
       if (bannerVisible) {
-        if (emojiOnly && typeof window.gitpulseRefreshBanner === "function") {
+        if (presentationOnly && typeof window.gitpulseRefreshBanner === "function") {
           window.gitpulseRefreshBanner();
           return;
         }
@@ -202,7 +215,11 @@ function _handleConfigChange(changes, mergeConfig) {
               const result = typeof getRepoStatus === "function"
                 ? await getRepoStatus(url)
                 : { status: await isRepoActive(url), details: {}, fromCache: false };
-              ToggleBanner(result.status, true, result.details || {}, { fromCache: result.fromCache });
+              ToggleBanner(result.status, true, result.details || {}, {
+                fromCache: result.fromCache,
+                score: result.score,
+                grade: result.grade,
+              });
             }
           } catch {
             ToggleBanner(false, true, { error: "Failed to refresh status" });
@@ -213,7 +230,7 @@ function _handleConfigChange(changes, mergeConfig) {
       }
 
       // Link pages
-      if (emojiOnly && typeof window.gitpulseRefreshAllLinkMarks === "function") {
+      if (presentationOnly && typeof window.gitpulseRefreshAllLinkMarks === "function") {
         window.gitpulseRefreshAllLinkMarks();
         return;
       }

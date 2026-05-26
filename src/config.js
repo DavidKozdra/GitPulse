@@ -63,6 +63,51 @@ const defaultConfig = {
     active: false,
     order: 24
   },
+  grading_enabled: {
+    name: "Show GitPulse grade badge",
+    value: false,
+    type: "boolean",
+    active: true,
+    order: 30
+  },
+  score_decides_status: {
+    name: "Use score for active status",
+    value: false,
+    type: "boolean",
+    active: true,
+    order: 31
+  },
+  min_active_score: {
+    name: "Minimum active score",
+    value: 70,
+    type: "number",
+    active: true,
+    order: 32
+  },
+  marker_display: {
+    name: "Link marker display",
+    value: "emoji",
+    type: "select",
+    options: [
+      { value: "emoji", label: "Emoji" },
+      { value: "badge", label: "Grade badge" },
+      { value: "both", label: "Emoji + badge" }
+    ],
+    active: true,
+    order: 33
+  },
+  banner_display: {
+    name: "Banner display",
+    value: "emoji",
+    type: "select",
+    options: [
+      { value: "emoji", label: "Emoji" },
+      { value: "badge", label: "Grade badge" },
+      { value: "both", label: "Emoji + badge" }
+    ],
+    active: true,
+    order: 34
+  },
 
   // UI emoji
   emoji_active: {
@@ -137,6 +182,12 @@ function validateConfig(storedConfig) {
       const fallback = typeof base.value === "string" ? base.value : "";
       const text = typeof rawField.value === "string" ? rawField.value : fallback;
       next.value = text.slice(0, 8);
+    } else if (next.type === "boolean") {
+      const fallback = typeof base.value === "boolean" ? base.value : false;
+      next.value = typeof rawField.value === "boolean" ? rawField.value : fallback;
+    } else if (next.type === "select") {
+      const allowed = Array.isArray(next.options) ? next.options.map(option => option.value) : [];
+      next.value = allowed.includes(rawField.value) ? rawField.value : base.value;
     } else if (Object.prototype.hasOwnProperty.call(rawField, "value")) {
       next.value = rawField.value;
     }

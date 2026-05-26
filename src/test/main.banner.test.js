@@ -16,6 +16,8 @@ global.config = {
   emoji_private: { active: true, value: '🔒' },
   emoji_rate_limited: { active: true, value: '⏳' },
   emoji_unsupported: { active: true, value: '❔' },
+  grading_enabled: { active: true, value: false },
+  banner_display: { active: true, value: 'emoji' },
 };
 
 global.ext = {
@@ -24,7 +26,8 @@ global.ext = {
 
 // Set up __gp namespace. Detail formatting normally comes from main.helpers.js;
 // tests install a formatter only when a scenario needs that behavior.
-global.__gp = {};
+const { createGradeBadge, repoGradeInfo } = require('../content/main.helpers');
+global.__gp = { createGradeBadge, repoGradeInfo };
 
 // Load banner module. It immediately calls ensureBannerExists once, so tests
 // reset document.body before scenarios that need a clean DOM.
@@ -156,6 +159,26 @@ describe('ToggleBanner', () => {
     ToggleBanner(true, true, { updatedAt: new Date().toISOString() });
     const detailsText = document.querySelector('.banner-details-text');
     expect(detailsText.textContent).toContain('Last activity today');
+  });
+
+  test('shows GitPulse grade badge with grade color when grading is enabled', () => {
+    global.config.grading_enabled.value = true;
+    global.config.banner_display.value = 'badge';
+
+    ToggleBanner(true, true, { score: 82, grade: 'B' }, { score: 82, grade: 'B' });
+
+    const badge = document.querySelector('.gitpulse-grade-badge');
+    const mainText = document.querySelector('.banner-main-text');
+    expect(badge).not.toBeNull();
+    expect(badge.iconSrc).toBe('../icon.png');
+    expect(badge.querySelector('img')).not.toBeNull();
+    expect(badge.textContent).toBe('Grade B');
+    expect(badge.style.borderRadius).toBe('5%');
+    expect(badge.style.backgroundColor).toMatch(/(#43a047|rgb\(67, 160, 71\))/);
+    expect(mainText.style.backgroundColor).toMatch(/(#43a047|rgb\(67, 160, 71\))/);
+
+    global.config.banner_display.value = 'emoji';
+    global.config.grading_enabled.value = false;
   });
 });
 

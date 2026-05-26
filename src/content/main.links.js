@@ -119,10 +119,25 @@ function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
     }
   }
 
-  const emoji = emojiForStatus(status);
+  const showEmoji = typeof window.__gp?.emojiDisplayEnabled === "function"
+    ? window.__gp.emojiDisplayEnabled("marker")
+    : true;
+  const emoji = showEmoji ? emojiForStatus(status) : null;
+  const gradeBadge = typeof window.__gp?.createGradeBadge === "function"
+    ? window.__gp.createGradeBadge(details, meta, "marker")
+    : null;
+  if (gradeBadge && (status === true || status === false)) {
+    Object.assign(gradeBadge.style, {
+      marginLeft: emoji ? "2px" : "0",
+      marginRight: "4px",
+      padding: "1px 5px",
+      fontSize: "10px",
+      lineHeight: "1.3",
+    });
+  }
   const existingMark = findOrAdoptLegacyMark(link);
 
-  if (!emoji) {
+  if (!emoji && !gradeBadge) {
     if (existingMark) existingMark.remove();
     return;
   }
@@ -140,13 +155,16 @@ function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
     }
   }
 
-  mark.textContent = `${emoji.icon} `;
-  mark.style.color = emoji.color;
+  mark.textContent = emoji ? `${emoji.icon} ` : "";
+  mark.style.color = emoji?.color || "";
+  if (gradeBadge) mark.appendChild(gradeBadge);
+
   const detailText =
     typeof window.__gp?.formatRepoStatusDetails === "function"
       ? window.__gp.formatRepoStatusDetails(status, details, meta)
       : "";
-  mark.title = detailText ? `${emoji.title}: ${detailText}` : emoji.title;
+  const title = emoji?.title || gradeBadge?.title || "";
+  mark.title = detailText && title ? `${title}: ${detailText}` : (title || detailText);
 }
 
 // Simple concurrency pool for promises. Pages such as search results can expose
@@ -226,7 +244,9 @@ function annotateLink(link, result) {
   // fallback paths can still annotate links.
   const status = isPlainStatusResult(result) ? result.status : result;
   const details = isPlainStatusResult(result) ? result.details || {} : {};
-  const meta = isPlainStatusResult(result) ? { fromCache: result.fromCache } : {};
+  const meta = isPlainStatusResult(result)
+    ? { fromCache: result.fromCache, score: result.score, grade: result.grade }
+    : {};
   setOrRemoveLinkMark(link, status, details, meta);
 }
 

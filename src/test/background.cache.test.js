@@ -82,7 +82,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: true,
       checkedAt: Date.now() - (1000 * 60 * 60 * 25), // 25h ago
-      v: 3,
+      v: CACHE_SCHEMA_VERSION,
     };
     const result = await readCache('old-key');
     expect(result).toBeNull();
@@ -93,7 +93,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: 'rate_limited',
       checkedAt: Date.now() - (1000 * 60 * 60 * 3), // 3h ago
-      v: 3,
+      v: CACHE_SCHEMA_VERSION,
     };
     const result = await readCache('rl-key');
     expect(result).toBeNull();
@@ -104,7 +104,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: 'rate_limited',
       checkedAt: Date.now() - (1000 * 60 * 60 * 1), // 1h ago
-      v: 3,
+      v: CACHE_SCHEMA_VERSION,
     };
     const result = await readCache('rl-valid');
     expect(result).not.toBeNull();
@@ -112,8 +112,8 @@ describe('cache helpers', () => {
   });
 
   test('clearCache removes all cache entries', async () => {
-    storage['repoCache:a'] = { isActive: true, checkedAt: Date.now(), v: 3 };
-    storage['repoCache:b'] = { isActive: false, checkedAt: Date.now(), v: 3 };
+    storage['repoCache:a'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
+    storage['repoCache:b'] = { isActive: false, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
     storage['githubPAT'] = 'ghp_test';
 
     await clearCache();
@@ -143,7 +143,7 @@ describe('smartClearCache', () => {
   });
 
   test('clears cache when rule values change', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
     const oldCfg = { max_repo_update_time: { active: true, value: 365 } };
     const newCfg = { max_repo_update_time: { active: true, value: 180 } };
     await smartClearCache(oldCfg, newCfg);
@@ -151,7 +151,7 @@ describe('smartClearCache', () => {
   });
 
   test('does NOT clear cache for emoji-only changes', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
     const oldCfg = { emoji_active: { value: '✅' }, max_repo_update_time: { active: true, value: 365 } };
     const newCfg = { emoji_active: { value: '🚀' }, max_repo_update_time: { active: true, value: 365 } };
     const result = await smartClearCache(oldCfg, newCfg);
@@ -160,7 +160,7 @@ describe('smartClearCache', () => {
   });
 
   test('falls back to full clear when oldConfig is null', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
     await smartClearCache(null, {});
     expect(storage['repoCache:x']).toBeUndefined();
   });
@@ -180,7 +180,7 @@ describe('fetchRepoStatus cache behavior', () => {
       isActive: false,
       details: { source: 'cache' },
       checkedAt: Date.now(),
-      v: 3,
+      v: CACHE_SCHEMA_VERSION,
     };
     const sendResponse = jest.fn();
 
@@ -198,12 +198,42 @@ describe('fetchRepoStatus cache behavior', () => {
     });
   });
 
+  test('returns cached score and grade when present', async () => {
+    storage['repoCache:codeberg.org/owner/repo'] = {
+      isActive: true,
+      details: { source: 'cache', score: 87, grade: 'B' },
+      score: 87,
+      grade: 'B',
+      checkedAt: Date.now(),
+      v: CACHE_SCHEMA_VERSION,
+    };
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo' },
+      {},
+      sendResponse
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: true,
+      result: {
+        status: true,
+        details: { source: 'cache', score: 87, grade: 'B' },
+        score: 87,
+        grade: 'B',
+      },
+      fromCache: true,
+    });
+  });
+
   test('ignores cached repo status when forceRefresh is true', async () => {
     storage['repoCache:codeberg.org/owner/repo'] = {
       isActive: false,
       details: { source: 'cache' },
       checkedAt: Date.now(),
-      v: 3,
+      v: CACHE_SCHEMA_VERSION,
     };
     fetch.mockResolvedValue({
       ok: true,
@@ -287,6 +317,158 @@ describe('fetchRepoStatus cache behavior', () => {
   test('returns unsupported instead of active for unknown fetch hosts', async () => {
     const result = await fetchRepoStatusByUrl('https://example.test/owner/repo', {});
     expect(result.status).toBe('unsupported');
+  });
+});
+
+describe('score grading', () => {
+  beforeEach(() => {
+    Object.keys(storage).forEach(k => delete storage[k]);
+    fetch.mockReset();
+  });
+
+  test('maps scores to grades', () => {
+    expect(gradeForScore(95)).toBe('A');
+    expect(gradeForScore(84)).toBe('B');
+    expect(gradeForScore(73)).toBe('C');
+    expect(gradeForScore(62)).toBe('D');
+    expect(gradeForScore(10)).toBe('F');
+  });
+
+  test('scores API-style snake_case activity dates', () => {
+    const result = attachScore({
+      status: true,
+      details: {
+        host: 'github.com',
+        updated_at: new Date().toISOString(),
+      },
+    }, { max_repo_update_time: 365 });
+
+    expect(result.score).toBe(100);
+    expect(result.grade).toBe('A');
+  });
+
+  test('derives grade from provided string score instead of trusting adapter grade', () => {
+    const result = attachScore({
+      status: true,
+      score: '82',
+      grade: 'f',
+      details: {
+        host: 'github.com',
+      },
+    }, {});
+
+    expect(result.score).toBe(82);
+    expect(result.grade).toBe('B');
+  });
+
+  test('does not let score mode override status when no score signals are available', () => {
+    const result = attachScore({
+      status: true,
+      details: {
+        host: 'github.com',
+      },
+    }, {
+      score_decides_status: true,
+      min_active_score: 70,
+    });
+
+    expect(result.status).toBe(true);
+    expect(result.score).toBeUndefined();
+    expect(result.details.scoreAvailable).toBe(false);
+  });
+
+  test('archives hard-fail even when adapter provides a high score', () => {
+    const result = attachScore({
+      status: true,
+      score: 95,
+      details: {
+        host: 'github.com',
+        isArchived: true,
+      },
+    }, {
+      score_decides_status: true,
+      min_active_score: 70,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.grade).toBe('F');
+  });
+
+  test('normalizes isActive adapter result shape', () => {
+    const result = attachScore({
+      isActive: true,
+      details: {
+        host: 'github.com',
+        pushOk: true,
+      },
+    }, {});
+
+    expect(result.status).toBe(true);
+    expect(result.score).toBe(100);
+    expect(result.grade).toBe('A');
+  });
+
+  test('keeps strict binary status unless score_decides_status is enabled', async () => {
+    const justPastThreshold = new Date(Date.now() - (400 * 24 * 60 * 60 * 1000)).toISOString();
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        updated_at: justPastThreshold,
+      }),
+    });
+
+    const result = await fetchRepoStatusByUrl('https://codeberg.org/owner/repo', {
+      max_repo_update_time: 365,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.score).toBeGreaterThanOrEqual(80);
+    expect(result.grade).toMatch(/[AB]/);
+  });
+
+  test('can use score to decide active status', async () => {
+    const justPastThreshold = new Date(Date.now() - (400 * 24 * 60 * 60 * 1000)).toISOString();
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        updated_at: justPastThreshold,
+      }),
+    });
+
+    const result = await fetchRepoStatusByUrl('https://codeberg.org/owner/repo', {
+      max_repo_update_time: 365,
+      score_decides_status: true,
+      min_active_score: 70,
+    });
+
+    expect(result.status).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(80);
+    expect(result.details.scoreDecidesStatus).toBe(true);
+  });
+
+  test('archives are always an F and inactive even in score mode', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: true,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    const result = await fetchRepoStatusByUrl('https://codeberg.org/owner/repo', {
+      score_decides_status: true,
+      min_active_score: 70,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.grade).toBe('F');
   });
 });
 

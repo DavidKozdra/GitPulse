@@ -68,7 +68,17 @@ function ensureBannerExists() {
     ext.sendMessage({ action: "open_popup" });
   };
 
-  textContainer.appendChild(mainText);
+  const statusRow = document.createElement("div");
+  statusRow.className = "banner-status-row";
+  Object.assign(statusRow.style, {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    flexWrap: "wrap"
+  });
+  statusRow.appendChild(mainText);
+  textContainer.appendChild(statusRow);
 
   const detailsText = document.createElement("span");
   detailsText.className = "banner-details-text";
@@ -153,8 +163,10 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
     return;
   }
   const mainText = banner.querySelector(".banner-main-text");
+  const statusRow = banner.querySelector(".banner-status-row") || mainText?.parentElement;
   const configLink = banner.querySelector(".banner-config-link");
   const detailsText = banner.querySelector(".banner-details-text");
+  statusRow?.querySelector(".gitpulse-grade-badge")?.remove();
 
   // Toggle visibility
   banner.style.display = Toggle ? "flex" : "none";
@@ -166,6 +178,10 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
       status === false ? "false" :
       (status === "private" || status === "rate_limited" || status === "unsupported") ? status : "";
     banner.dataset.gitpulseDetails = JSON.stringify(details || {});
+    if (Number.isFinite(meta?.score)) banner.dataset.gitpulseScore = String(meta.score);
+    else delete banner.dataset.gitpulseScore;
+    if (typeof meta?.grade === "string") banner.dataset.gitpulseGrade = meta.grade;
+    else delete banner.dataset.gitpulseGrade;
   } catch {
     // ignore
   }
@@ -180,7 +196,11 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
     const raw = typeof field?.value === "string" ? field.value.trim() : "";
     return raw ? raw : fallback;
   };
+  const showEmoji = typeof window.__gp?.emojiDisplayEnabled === "function"
+    ? window.__gp.emojiDisplayEnabled("banner")
+    : true;
   const emoji =
+    !showEmoji ? null :
     isRateLimited ? pick("emoji_rate_limited", "⏳") :
     isPrivate ? pick("emoji_private", "🔒") :
     isUnsupported ? pick("emoji_unsupported", "❔") :
@@ -206,9 +226,22 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
     bgColor = "#d32f2f";
   }
 
+  const gradeInfo = typeof window.__gp?.repoGradeInfo === "function"
+    ? window.__gp.repoGradeInfo(details, meta)
+    : null;
+  if (gradeInfo && (isActive || isInactive)) {
+    bgColor = gradeInfo.color;
+  }
+
   // Update bubble text + color
   mainText.textContent = mainMessage;
   mainText.style.backgroundColor = bgColor;
+  mainText.style.color = gradeInfo?.textColor || "white";
+
+  if (statusRow && typeof window.__gp?.createGradeBadge === "function" && (isActive || isInactive)) {
+    const badge = window.__gp.createGradeBadge(details, meta, "banner");
+    if (badge) statusRow.appendChild(badge);
+  }
 
   if (detailsText) {
     const detailMessage =
@@ -244,8 +277,13 @@ window.gitpulseRefreshBanner = () => {
   } catch {
     details = {};
   }
+  const storedScore = Number(banner.dataset?.gitpulseScore);
+  const meta = {
+    score: Number.isFinite(storedScore) ? storedScore : details.score,
+    grade: banner.dataset?.gitpulseGrade || details.grade,
+  };
   if (status === "private" || status === "rate_limited" || status === "unsupported" || status === true || status === false) {
-    ToggleBanner(status, banner.style.display !== "none", details);
+    ToggleBanner(status, banner.style.display !== "none", details, meta);
   }
 };
 window.__gp.refreshBanner = window.gitpulseRefreshBanner;

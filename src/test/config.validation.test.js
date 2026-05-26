@@ -29,6 +29,9 @@ describe('validateConfig', () => {
     const result = validateConfig(null);
     expect(result.max_repo_update_time.value).toBe(365);
     expect(result.emoji_active.value).toBe('✅');
+    expect(result.grading_enabled.value).toBe(false);
+    expect(result.min_active_score.value).toBe(70);
+    expect(result.marker_display.value).toBe('emoji');
   });
 
   test('returns defaultConfig when given non-object', () => {
@@ -84,6 +87,42 @@ describe('validateConfig', () => {
     };
     const result = validateConfig(stored);
     expect(result.max_repo_update_time.active).toBe(false);
+  });
+
+  test('preserves valid boolean values', () => {
+    const stored = {
+      grading_enabled: { value: true, active: true },
+      score_decides_status: { value: true, active: true },
+    };
+    const result = validateConfig(stored);
+    expect(result.grading_enabled.value).toBe(true);
+    expect(result.score_decides_status.value).toBe(true);
+  });
+
+  test('rejects invalid boolean values', () => {
+    const stored = {
+      grading_enabled: { value: 'yes', active: true },
+    };
+    const result = validateConfig(stored);
+    expect(result.grading_enabled.value).toBe(false);
+  });
+
+  test('preserves valid select values', () => {
+    const stored = {
+      marker_display: { value: 'badge', active: true },
+      banner_display: { value: 'both', active: true },
+    };
+    const result = validateConfig(stored);
+    expect(result.marker_display.value).toBe('badge');
+    expect(result.banner_display.value).toBe('both');
+  });
+
+  test('rejects invalid select values', () => {
+    const stored = {
+      marker_display: { value: 'anything', active: true },
+    };
+    const result = validateConfig(stored);
+    expect(result.marker_display.value).toBe('emoji');
   });
 
   test('preserves extra keys for forward compatibility', () => {

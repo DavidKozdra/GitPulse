@@ -11,33 +11,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   const loadPAT = () =>
     ext.storage.local.get(["githubPAT"]).then(({ githubPAT } = {}) => githubPAT || "");
 
-  const savePAT = (pat) =>
-    ext.storage.local.set({ githubPAT: pat }).then(() => true);
+  const savePAT = (nextPat) =>
+    ext.sendMessage({ action: "setPAT", pat: nextPat }).then((response) => response?.success === true);
 
   const loadConfig = async () => {
-    // Stored config may be from an older extension version. Merge onto defaults
-    // so newly added settings appear without forcing a full reset.
-    const { repoCheckerConfig } = await ext.storage.local.get(["repoCheckerConfig"]);
-    const mergedConfig = { ...defaultConfig };
-    if (repoCheckerConfig) {
-      Object.keys(repoCheckerConfig).forEach(key => {
-        if (mergedConfig[key]) mergedConfig[key] = { ...mergedConfig[key], ...repoCheckerConfig[key] };
-        else mergedConfig[key] = repoCheckerConfig[key];
-      });
-    }
-    return mergedConfig;
+    // Load through the background worker so popup rendering uses the same
+    // sanitized config shape as content scripts.
+    const response = await ext.sendMessage({ action: "getConfig" });
+    return validateConfig(response?.config);
   };
 
   const saveConfig = (newConfig) =>
-    ext.storage.local.set({ repoCheckerConfig: newConfig }).then(() => true);
-
-  const clearRepoCache = () => ext.sendMessage({ action: "clearCache" });
+    ext.sendMessage({ action: "setConfig", config: validateConfig(newConfig) })
+      .then((response) => response?.success === true);
 
   // ---------------------------
   // Load config, PAT, and recent emoji
   // ---------------------------
   const config = await loadConfig();
-  const pat = await loadPAT();
+  let pat = await loadPAT();
 
   const emojiRecentKey = "emojiRecents";
   let recentEmojis = [];
@@ -72,6 +64,280 @@ document.addEventListener("DOMContentLoaded", async () => {
   const sortedKeys = Object.keys(config)
     .filter(key => config[key] && config[key].value !== undefined)
     .sort((a, b) => (config[a].order ?? 999) - (config[b].order ?? 999));
+
+  const previewEls = {
+    panel: document.getElementById("previewPanel"),
+    tabs: Array.from(document.querySelectorAll(".preview-state-btn")),
+    bannerPill: document.getElementById("previewBannerPill"),
+    details: document.getElementById("previewDetails"),
+    link: document.getElementById("previewLink"),
+    scoreValue: document.getElementById("previewScoreValue"),
+    scoreLabel: document.getElementById("previewScoreLabel"),
+    scoreMode: document.getElementById("previewScoreMode"),
+    breakdown: document.getElementById("previewBreakdown"),
+  };
+  let previewState = "active";
+
+  const gradeColors = {
+    A: "#1a8917",
+    B: "#43a047",
+    C: "#fbc02d",
+    D: "#f57c00",
+    F: "#d32f2f",
+  };
+
+  function clampScore(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.max(0, Math.min(100, Math.round(numeric)));
+  }
+
+  function gradeForScore(score) {
+    const value = clampScore(score);
+    if (value >= 90) return "A";
+    if (value >= 80) return "B";
+    if (value >= 70) return "C";
+    if (value >= 60) return "D";
+    return "F";
+  }
+
+  function gradeTextColor(grade) {
+    return grade === "C" ? "#1f2933" : "#fff";
+  }
+
+  function buildDraftConfig() {
+    const draft = {};
+    sortedKeys.forEach(key => {
+      const input = document.getElementById(key);
+      const field = config[key];
+      if (!field || !input) return;
+      const row = input.closest(".form-group-row");
+      const toggle = row?.querySelector(".toggle-checkbox");
+      const active = toggle ? !!toggle.checked : field.active !== false;
+
+      if (field.type === "number") {
+        const val = Number(input.value);
+        draft[key] = { ...field, active, value: Number.isFinite(val) ? val : field.value };
+      } else if (field.type === "boolean") {
+        draft[key] = { ...field, active, value: !!input.checked };
+      } else if (field.type === "select") {
+        draft[key] = { ...field, active, value: input.value };
+      } else {
+        draft[key] = { ...field, active, value: input.value || field.value };
+      }
+    });
+    return draft;
+  }
+
+  function isFieldActive(draft, key) {
+    const field = draft[key];
+    return !!field && field.active !== false && field.value !== undefined;
+  }
+
+  function pickEmoji(draft, key, fallback) {
+    const field = draft[key];
+    if (field && field.active === false) return "";
+    const raw = typeof field?.value === "string" ? field.value.trim() : "";
+    return raw || fallback;
+  }
+
+  function displayMode(draft, key) {
+    const value = draft[key]?.value;
+    return value === "emoji" || value === "badge" || value === "both" ? value : "emoji";
+  }
+
+  function displayIncludes(mode, part) {
+    return mode === part || mode === "both";
+  }
+
+  function sampleScoreForState(draft, state) {
+    const minActive = clampScore(draft.min_active_score?.value ?? 70);
+    if (state === "active") return Math.min(96, Math.max(82, minActive + 10));
+    if (state === "inactive") return Math.max(12, Math.min(58, minActive - 18));
+    return null;
+  }
+
+  function statusForPreview(draft, state, score) {
+    if (state === "private" || state === "rate_limited") return state;
+    if (draft.score_decides_status?.value === true && Number.isFinite(score)) {
+      return score >= clampScore(draft.min_active_score?.value ?? 70);
+    }
+    return state === "active";
+  }
+
+  function badgeForScore(score) {
+    const grade = gradeForScore(score);
+    const badge = document.createElement("span");
+    badge.className = "preview-grade-badge";
+    badge.style.backgroundColor = gradeColors[grade];
+    badge.style.color = gradeTextColor(grade);
+
+    const icon = document.createElement("img");
+    icon.className = "preview-grade-icon";
+    icon.src = "./icon.png";
+    icon.alt = "";
+    icon.setAttribute("aria-hidden", "true");
+
+    const label = document.createElement("span");
+    label.textContent = `Grade ${grade}`;
+
+    badge.appendChild(icon);
+    badge.appendChild(label);
+    return badge;
+  }
+
+  function breakdownItems(draft, state, score) {
+    const active = state === "active";
+    const items = [
+      {
+        key: "max_repo_update_time",
+        label: "Activity",
+        score: active ? 100 : Math.max(0, score - 6),
+      },
+      {
+        key: "open_prs_max",
+        label: "Open PRs",
+        score: active ? 92 : Math.max(0, score - 12),
+      },
+      {
+        key: "last_closed_pr_max_days",
+        label: "Closed PR",
+        score: active ? 88 : Math.max(0, score - 18),
+      },
+      {
+        key: "max_issues_update_time",
+        label: "Issues",
+        score: active ? 86 : Math.max(0, score - 10),
+      },
+      {
+        key: "max_days_since_last_release",
+        label: "Release",
+        score: active ? 84 : Math.max(0, score - 25),
+      },
+      {
+        key: "max_open_issue_age",
+        label: "Issue age",
+        score: active ? 90 : Math.max(0, score - 16),
+      },
+    ].filter(item => isFieldActive(draft, item.key));
+
+    return items.length ? items : [{ key: "score", label: "Score", score }];
+  }
+
+  function renderPreview() {
+    if (!previewEls.panel) return;
+    const draft = buildDraftConfig();
+    const score = sampleScoreForState(draft, previewState);
+    const status = statusForPreview(draft, previewState, score);
+    const gradingEnabled = draft.grading_enabled?.value === true;
+    const scoreControlsStatus = draft.score_decides_status?.value === true;
+    const bannerMode = displayMode(draft, "banner_display");
+    const markerMode = displayMode(draft, "marker_display");
+    const showBannerEmoji = displayIncludes(bannerMode, "emoji");
+    const showBannerBadge = gradingEnabled && displayIncludes(bannerMode, "badge");
+    const showMarkerEmoji = displayIncludes(markerMode, "emoji");
+    const showMarkerBadge = gradingEnabled && displayIncludes(markerMode, "badge");
+    const minActive = clampScore(draft.min_active_score?.value ?? 70);
+    const grade = Number.isFinite(score) ? gradeForScore(score) : "";
+    const gradeColor = grade ? gradeColors[grade] : "";
+    const statusKey = status === true ? "active" : status === false ? "inactive" : status;
+    const emoji =
+      status === true ? pickEmoji(draft, "emoji_active", "✅") :
+      status === false ? pickEmoji(draft, "emoji_inactive", "❌") :
+      status === "private" ? pickEmoji(draft, "emoji_private", "🔒") :
+      status === "rate_limited" ? pickEmoji(draft, "emoji_rate_limited", "⏳") :
+      "";
+    const statusText =
+      status === true ? "Repo is Active" :
+      status === false ? "Repo is Inactive" :
+      status === "private" ? "Private or Unavailable" :
+      "Rate limit hit";
+    const statusColor =
+      gradingEnabled && gradeColor && (status === true || status === false) ? gradeColor :
+      status === true ? "#1a8917" :
+      status === false ? "#d32f2f" :
+      status === "private" ? "#555" :
+      "#f57c00";
+    const textColor = gradingEnabled && grade === "C" && (status === true || status === false)
+      ? "#1f2933"
+      : "#fff";
+
+    previewEls.tabs.forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.previewState === previewState);
+    });
+
+    previewEls.bannerPill.innerHTML = "";
+    previewEls.bannerPill.style.backgroundColor = statusColor;
+    previewEls.bannerPill.style.color = textColor;
+    const statusSpan = document.createElement("span");
+    statusSpan.textContent = `${showBannerEmoji && emoji ? `${emoji} ` : ""}${statusText}`;
+    previewEls.bannerPill.appendChild(statusSpan);
+    if (showBannerBadge && Number.isFinite(score) && (status === true || status === false)) {
+      previewEls.bannerPill.appendChild(badgeForScore(score));
+    }
+
+    const detailParts = [];
+    if (Number.isFinite(score)) detailParts.push(`Score ${score}`);
+    if (grade) detailParts.push(`Grade ${grade}`);
+    detailParts.push(scoreControlsStatus ? `Active at ${minActive}+` : "Strict checks decide status");
+    previewEls.details.textContent = detailParts.join(" | ");
+
+    previewEls.link.innerHTML = "";
+    const marker = document.createElement("span");
+    marker.className = "preview-link-marker";
+    if (showMarkerEmoji && emoji) {
+      const icon = document.createElement("span");
+      icon.textContent = emoji;
+      marker.appendChild(icon);
+    }
+    if (showMarkerBadge && Number.isFinite(score) && (status === true || status === false)) {
+      marker.appendChild(badgeForScore(score));
+    }
+    if (marker.childNodes.length) previewEls.link.appendChild(marker);
+    previewEls.link.appendChild(document.createTextNode("github.com/example/project"));
+
+    previewEls.scoreValue.textContent = Number.isFinite(score) ? String(score) : "--";
+    previewEls.scoreLabel.textContent = Number.isFinite(score) ? `/ 100 ${grade ? `(${grade})` : ""}` : statusKey;
+    previewEls.scoreMode.textContent = scoreControlsStatus
+      ? `Score decides: ${status === true ? "active" : status === false ? "inactive" : statusKey}`
+      : `Strict decides: ${statusKey}`;
+
+    previewEls.breakdown.innerHTML = "";
+    if (Number.isFinite(score) && (status === true || status === false)) {
+      breakdownItems(draft, previewState, score).forEach(item => {
+        const cell = document.createElement("div");
+        cell.className = "preview-breakdown-item";
+        const label = document.createElement("span");
+        label.className = "preview-breakdown-label";
+        label.textContent = item.label;
+        const value = document.createElement("span");
+        value.className = "preview-breakdown-score";
+        value.textContent = `${clampScore(item.score)}`;
+        cell.appendChild(label);
+        cell.appendChild(value);
+        previewEls.breakdown.appendChild(cell);
+      });
+    } else {
+      const cell = document.createElement("div");
+      cell.className = "preview-breakdown-item";
+      const label = document.createElement("span");
+      label.className = "preview-breakdown-label";
+      label.textContent = status === "private" ? "Access" : "Limit";
+      const value = document.createElement("span");
+      value.className = "preview-breakdown-score";
+      value.textContent = status === "private" ? "Locked" : "Retry";
+      cell.appendChild(label);
+      cell.appendChild(value);
+      previewEls.breakdown.appendChild(cell);
+    }
+  }
+
+  previewEls.tabs.forEach(btn => {
+    btn.addEventListener("click", () => {
+      previewState = btn.dataset.previewState || "active";
+      renderPreview();
+    });
+  });
 
   sortedKeys.forEach(key => {
     // Each config entry renders as: label, value input, optional emoji picker,
@@ -109,6 +375,19 @@ document.addEventListener("DOMContentLoaded", async () => {
       input.checked = !!field.value;
       input.style.flex = "0";
       input.style.cursor = "pointer";
+    } else if (field.type === "select") {
+      input = document.createElement("select");
+      input.value = field.value;
+      input.className = "form-input";
+      input.style.flex = "1";
+      input.style.maxWidth = "140px";
+      (field.options || []).forEach(option => {
+        const el = document.createElement("option");
+        el.value = option.value;
+        el.textContent = option.label || option.value;
+        input.appendChild(el);
+      });
+      input.value = field.value;
     } else {
       input = document.createElement("input");
       input.type = field.type === "number" ? "number" : "text";
@@ -119,16 +398,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (field.type === "text" && String(field.value).length <= 2) input.maxLength = 2;
     }
     input.id = key;
+    input.addEventListener("input", renderPreview);
+    input.addEventListener("change", renderPreview);
 
-    // Toggle checkbox (enable/disable this setting)
-    const toggle = document.createElement("input");
-    toggle.type = "checkbox";
-    toggle.checked = field.active;
-    toggle.className = "toggle-checkbox";
-    toggle.style.flex = "0";
-    toggle.style.cursor = "pointer";
-    toggle.title = "Enable/disable this setting";
-    toggle.addEventListener("change", () => field.active = toggle.checked);
+    // Toggle checkbox (enable/disable this setting). Boolean settings already
+    // use their value checkbox as the on/off control, so a second toggle would
+    // be redundant.
+    let toggle = null;
+    if (field.type !== "boolean") {
+      toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.checked = field.active;
+      toggle.className = "toggle-checkbox";
+      toggle.style.flex = "0";
+      toggle.style.cursor = "pointer";
+      toggle.title = "Enable/disable this setting";
+      toggle.addEventListener("change", () => {
+        field.active = toggle.checked;
+        renderPreview();
+      });
+    }
 
     formGroup.appendChild(label);
     formGroup.appendChild(input);
@@ -234,6 +523,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             input.value = item.char;
             trigger.textContent = item.char;
             recordEmojiRecent(item.char);
+            renderPreview();
             closePicker();
           });
           grid.appendChild(btn);
@@ -244,7 +534,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       search.addEventListener("input", () => renderGrid(search.value));
     }
 
-    formGroup.appendChild(toggle);
+    if (toggle) formGroup.appendChild(toggle);
 
     formsContainer.appendChild(formGroup);
   });
@@ -267,14 +557,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     sortedKeys.forEach(key => {
       const field = configToApply[key];
       const input = document.getElementById(key);
-      let toggle;
-      // Structure: label -> input -> toggle
-      if (input) toggle = input.nextSibling?.nextSibling;
       if (!input) return;
+      const row = input.closest(".form-group-row");
+      const toggle = row?.querySelector(".toggle-checkbox");
       if (field.type === "boolean") input.checked = !!field.value;
       else input.value = field.value;
+      const emojiTrigger = row?.querySelector(".emoji-trigger");
+      if (emojiTrigger && typeof field.value === "string") {
+        emojiTrigger.textContent = field.value.trim() || "🙂";
+      }
       if (toggle && toggle.type === "checkbox") toggle.checked = field.active;
     });
+    renderPreview();
   };
 
   // ---------------------------
@@ -283,24 +577,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("saveBtn").addEventListener("click", async () => {
     // Reconstruct the persisted config from the current controls. Numeric fields
     // fall back to their previous value if the input cannot be parsed.
-    const newConfig = {};
-    sortedKeys.forEach(key => {
-      const input = document.getElementById(key);
-      if (!input) return;
-      const field = config[key];
-      if (field.type === "number") {
-        const val = Number(input.value);
-        newConfig[key] = { ...field, value: isNaN(val) ? field.value : val };
-      } else if (field.type === "boolean") {
-        newConfig[key] = { ...field, value: !!input.checked };
-      } else {
-        newConfig[key] = { ...field, value: input.value || field.value };
-      }
-    });
+    const newConfig = buildDraftConfig();
+    const nextPat = patInput.value.trim();
 
     await saveConfig(newConfig);
-    await savePAT(patInput.value.trim());
-    await clearRepoCache();
+    if (nextPat !== pat) {
+      await savePAT(nextPat);
+      pat = nextPat;
+    }
     alert("Configuration saved!");
   });
 
@@ -314,11 +598,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!confirmReset) return;
 
     const defaultConfigCopy = await resetConfig(); // from config.js now returns the defaults
-    await saveConfig(defaultConfigCopy);           // persist defaults
     patInput.value = "";                           // clear PAT
-    await clearRepoCache();
+    if (pat) {
+      await savePAT("");
+      pat = "";
+    }
     alert("✅ Configuration has been reset to defaults.");
 
     updateUI(defaultConfigCopy);                   // update form inputs
   });
+
+  renderPreview();
 });

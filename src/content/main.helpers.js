@@ -13,6 +13,133 @@ const STATUS_LABELS = {
   rate_limited: "Rate limited",
   unsupported: "Unsupported repository host",
 };
+const GRADE_COLORS = {
+  A: "#1a8917",
+  B: "#43a047",
+  C: "#fbc02d",
+  D: "#f57c00",
+  F: "#d32f2f",
+};
+
+function isGradingEnabled() {
+  const field = typeof config !== "undefined" ? config?.grading_enabled : null;
+  return field?.active !== false && field?.value === true;
+}
+
+function displayMode(surface = "marker") {
+  const key = surface === "banner" ? "banner_display" : "marker_display";
+  const value = typeof config !== "undefined" ? config?.[key]?.value : null;
+  return value === "badge" || value === "both" || value === "emoji" ? value : "emoji";
+}
+
+function emojiDisplayEnabled(surface = "marker") {
+  const mode = displayMode(surface);
+  return mode === "emoji" || mode === "both";
+}
+
+function gradeDisplayEnabled(surface = "marker") {
+  return isGradingEnabled();
+}
+
+function gradeForScore(score) {
+  const value = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+  if (value >= 90) return "A";
+  if (value >= 80) return "B";
+  if (value >= 70) return "C";
+  if (value >= 60) return "D";
+  return "F";
+}
+
+function finiteNumber(value) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizedGrade(value, score) {
+  return gradeForScore(score);
+}
+
+function gradeColor(grade) {
+  return GRADE_COLORS[grade] || GRADE_COLORS.F;
+}
+
+function gradeTextColor(grade) {
+  return grade === "C" ? "#1f2933" : "#fff";
+}
+
+function repoGradeInfo(details = {}, meta = {}) {
+  if (!isGradingEnabled()) return null;
+  const rawScore = finiteNumber(meta.score ?? details?.score);
+  if (rawScore === null) return null;
+  const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+  const grade = normalizedGrade(meta.grade || details?.grade, score);
+  return {
+    score,
+    grade,
+    color: gradeColor(grade),
+    textColor: gradeTextColor(grade),
+    label: `Grade ${grade}`,
+  };
+}
+
+function gradeIconSrc() {
+  try {
+    const rawRuntime = ext?.runtime?.raw;
+    if (typeof rawRuntime?.getURL === "function") return rawRuntime.getURL("src/icon.png");
+    if (typeof chrome?.runtime?.getURL === "function") return chrome.runtime.getURL("src/icon.png");
+    if (typeof browser?.runtime?.getURL === "function") return browser.runtime.getURL("src/icon.png");
+  } catch {
+    // fall through to test/local fallback
+  }
+  return "../icon.png";
+}
+
+function createGradeBadge(details = {}, meta = {}, surface = "marker") {
+  if (!gradeDisplayEnabled(surface)) return null;
+  const info = repoGradeInfo(details, meta);
+  if (!info || typeof document === "undefined") return null;
+
+  const badge = document.createElement("span");
+  badge.className = "gitpulse-grade-badge";
+  badge.iconSrc = "../icon.png"; // Used by tests to verify badge presence without relying on styles
+  badge.title = `GitPulse ${info.label} (${info.score})`;
+  badge.setAttribute("aria-label", badge.title);
+
+  const icon = document.createElement("img");
+  icon.src = gradeIconSrc();
+  icon.alt = "";
+  icon.setAttribute("aria-hidden", "true");
+  Object.assign(icon.style, {
+    width: "12px",
+    height: "12px",
+    marginRight: "4px",
+    borderRadius: "2px",
+    objectFit: "contain",
+    flex: "0 0 auto",
+  });
+
+  const label = document.createElement("span");
+  label.textContent = info.label;
+
+  badge.appendChild(icon);
+  badge.appendChild(label);
+  Object.assign(badge.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: "8px",
+    padding: "2px 7px",
+    borderRadius: "5%",
+    backgroundColor: info.color,
+    color: info.textColor,
+    fontSize: "11px",
+    fontWeight: "700",
+    lineHeight: "1.4",
+    whiteSpace: "nowrap",
+    verticalAlign: "middle",
+  });
+  return badge;
+}
 
 function isReloadNavigation() {
   // A hard reload is a strong signal that the user wants fresh data for the
@@ -80,18 +207,25 @@ function formatRepoStatusDetails(status, details = {}, meta = {}) {
   }
 
   const parts = [];
-  const activityAt = details?.pushedAt || details?.updatedAt;
+  const activityAt =
+    details?.pushedAt ||
+    details?.updatedAt ||
+    details?.pushed_at ||
+    details?.updated_at ||
+    details?.last_activity_at ||
+    details?.lastActivityAt;
   const activityAgo = formatRelativeDate(activityAt);
   if (activityAgo) parts.push(`Last activity ${activityAgo}`);
 
-  if (Number.isFinite(details?.openPrCount)) {
-    parts.push(`${details.openPrCount} open PRs`);
+  const openPrCount = finiteNumber(details?.openPrCount ?? details?.open_pr_count);
+  if (openPrCount !== null) {
+    parts.push(`${openPrCount} open PRs`);
   }
 
-  const closedPrAgo = formatRelativeDate(details?.lastClosedPrAt);
+  const closedPrAgo = formatRelativeDate(details?.lastClosedPrAt || details?.last_closed_pr_at);
   if (closedPrAgo) parts.push(`Last closed PR ${closedPrAgo}`);
 
-  const releaseAgo = formatRelativeDate(details?.lastReleaseAt);
+  const releaseAgo = formatRelativeDate(details?.lastReleaseAt || details?.last_release_at);
   if (releaseAgo) parts.push(`Last release ${releaseAgo}`);
 
   if (details?.latestVersion) parts.push(`Latest ${details.latestVersion}`);
@@ -105,6 +239,9 @@ function formatRepoStatusDetails(status, details = {}, meta = {}) {
   if (details?.releaseOk === false) failedChecks.push("release recency");
   if (details?.openIssueAgeOk === false) failedChecks.push("open issue age");
   if (failedChecks.length) parts.push(`Failed: ${failedChecks.join(", ")}`);
+
+  const gradeInfo = repoGradeInfo(details, meta);
+  if (gradeInfo) parts.push(`${gradeInfo.label} ${gradeInfo.score}`);
 
   if (meta?.fromCache) parts.push("Cached result");
 
@@ -138,6 +275,8 @@ async function getRepoStatus(url, options = {}) {
   return {
     status: res.result?.status,
     details: res.result?.details || {},
+    score: res.result?.score,
+    grade: res.result?.grade,
     fromCache: !!res.fromCache,
   };
 }
@@ -152,6 +291,13 @@ async function isRepoActive(url, options = {}) {
 globalThis.__gp = globalThis.__gp || {};
 globalThis.__gp.formatRepoStatusDetails = formatRepoStatusDetails;
 globalThis.__gp.statusLabel = statusLabel;
+globalThis.__gp.gradeColor = gradeColor;
+globalThis.__gp.gradeTextColor = gradeTextColor;
+globalThis.__gp.gradeIconSrc = gradeIconSrc;
+globalThis.__gp.emojiDisplayEnabled = emojiDisplayEnabled;
+globalThis.__gp.gradeDisplayEnabled = gradeDisplayEnabled;
+globalThis.__gp.repoGradeInfo = repoGradeInfo;
+globalThis.__gp.createGradeBadge = createGradeBadge;
 
 // Export for Node test environment (jest) if available
 if (typeof module !== 'undefined' && module.exports) {
@@ -163,6 +309,13 @@ if (typeof module !== 'undefined' && module.exports) {
     isReloadNavigation,
     formatRepoStatusDetails,
     statusLabel,
+    gradeColor,
+    gradeTextColor,
+    gradeIconSrc,
+    emojiDisplayEnabled,
+    gradeDisplayEnabled,
+    repoGradeInfo,
+    createGradeBadge,
   };
 }
 

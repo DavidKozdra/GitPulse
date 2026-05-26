@@ -16,6 +16,8 @@ global.config = {
   emoji_private: { active: true, value: '🔒' },
   emoji_rate_limited: { active: true, value: '⏳' },
   emoji_unsupported: { active: true, value: '❔' },
+  grading_enabled: { active: true, value: false },
+  marker_display: { active: true, value: 'emoji' },
 };
 
 global.ext = {
@@ -227,5 +229,47 @@ describe('setOrRemoveLinkMark', () => {
     const marks = link.querySelectorAll('.repo-checker-mark');
     expect(marks.length).toBe(1);
     expect(marks[0].textContent).toContain('❌');
+  });
+
+  test('renders GitPulse grade badge inside the marker when grading is enabled', () => {
+    global.config.grading_enabled.value = true;
+    global.config.marker_display.value = 'badge';
+    const link = document.createElement('a');
+    link.textContent = 'Hello World';
+
+    setOrRemoveLinkMark(link, true, { score: 95, grade: 'A' }, { score: 95, grade: 'A' });
+
+    const badge = link.querySelector('.gitpulse-grade-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.iconSrc).toBe('../icon.png');
+    expect(badge.querySelector('img')).not.toBeNull();
+    expect(badge.textContent).toBe('Grade A');
+    expect(badge.style.borderRadius).toBe('5%');
+    expect(badge.style.backgroundColor).toMatch(/(#1a8917|rgb\(26, 137, 23\))/);
+
+    global.config.marker_display.value = 'emoji';
+    global.config.grading_enabled.value = false;
+  });
+
+  test('keeps grade badge when status emoji is disabled', () => {
+    global.config.grading_enabled.value = true;
+    global.config.marker_display.value = 'badge';
+    const origActive = global.config.emoji_active;
+    global.config.emoji_active = { active: false, value: '✅' };
+    const link = document.createElement('a');
+    link.textContent = 'Hello World';
+
+    setOrRemoveLinkMark(link, true, { score: 95, grade: 'A' }, { score: 95, grade: 'A' });
+
+    const mark = link.querySelector('.repo-checker-mark');
+    const badge = link.querySelector('.gitpulse-grade-badge');
+    expect(mark).not.toBeNull();
+    expect(mark.textContent).toContain('Grade A');
+    expect(mark.textContent).not.toContain('✅');
+    expect(badge).not.toBeNull();
+
+    global.config.emoji_active = origActive;
+    global.config.marker_display.value = 'emoji';
+    global.config.grading_enabled.value = false;
   });
 });
