@@ -63,7 +63,45 @@ function ensureBannerExists() {
   };
 
   textContainer.appendChild(mainText);
+
+  const detailsText = document.createElement("span");
+  detailsText.className = "banner-details-text";
+  Object.assign(detailsText.style, {
+    color: "#444",
+    fontSize: "0.8rem",
+    lineHeight: "1.35",
+    marginTop: "0.35em",
+    textAlign: "center"
+  });
+  textContainer.appendChild(detailsText);
+
   textContainer.appendChild(configLink);
+
+  const refreshBtn = document.createElement("button");
+  refreshBtn.id = "banner-refresh";
+  refreshBtn.textContent = "↻";
+  refreshBtn.title = "Refresh repository status";
+  Object.assign(refreshBtn.style, {
+    background: "transparent",
+    border: "none",
+    color: "#444",
+    fontSize: "1.35rem",
+    lineHeight: "1",
+    cursor: "pointer",
+    marginLeft: "1em"
+  });
+
+  refreshBtn.onclick = async () => {
+    if (typeof window.gitpulseRefreshCurrentRepo !== "function") return;
+    refreshBtn.disabled = true;
+    refreshBtn.style.opacity = "0.55";
+    try {
+      await window.gitpulseRefreshCurrentRepo();
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.style.opacity = "1";
+    }
+  };
 
   // close button
   const closeBtn = document.createElement("button");
@@ -84,15 +122,17 @@ function ensureBannerExists() {
 
   // assemble
   banner.appendChild(textContainer);
+  banner.appendChild(refreshBtn);
   banner.appendChild(closeBtn);
   document.body.prepend(banner);
 
   return banner;
 }
 
-function ToggleBanner(status, Toggle) {
+function ToggleBanner(status, Toggle, details = {}, meta = {}) {
   const isRateLimited = status === "rate_limited";
   const isPrivate = status === "private";
+  const isUnsupported = status === "unsupported";
   const isActive = status === true;
   const isInactive = status === false;
 
@@ -104,6 +144,7 @@ function ToggleBanner(status, Toggle) {
   }
   const mainText = banner.querySelector(".banner-main-text");
   const configLink = banner.querySelector(".banner-config-link");
+  const detailsText = banner.querySelector(".banner-details-text");
 
   // Toggle visibility
   banner.style.display = Toggle ? "flex" : "none";
@@ -113,7 +154,8 @@ function ToggleBanner(status, Toggle) {
     banner.dataset.gitpulseStatus =
       status === true ? "true" :
       status === false ? "false" :
-      (status === "private" || status === "rate_limited") ? status : "";
+      (status === "private" || status === "rate_limited" || status === "unsupported") ? status : "";
+    banner.dataset.gitpulseDetails = JSON.stringify(details || {});
   } catch {
     // ignore
   }
@@ -129,6 +171,7 @@ function ToggleBanner(status, Toggle) {
   const emoji =
     isRateLimited ? pick("emoji_rate_limited", "⏳") :
     isPrivate ? pick("emoji_private", "🔒") :
+    isUnsupported ? pick("emoji_unsupported", "❔") :
     isActive ? pick("emoji_active", "✅") :
     isInactive ? pick("emoji_inactive", "❌") :
     null;
@@ -138,8 +181,11 @@ function ToggleBanner(status, Toggle) {
     mainMessage = `${emojiPrefix}Rate limit hit — Results temporarily inactive`;
     bgColor = "#f57c00";
   } else if (isPrivate) {
-    mainMessage = `${emojiPrefix}Private Repository`;
+    mainMessage = `${emojiPrefix}Private or Unavailable`;
     bgColor = "#555";
+  } else if (isUnsupported) {
+    mainMessage = `${emojiPrefix}Host Not Supported`;
+    bgColor = "#6a737d";
   } else if (isActive) {
     mainMessage = `${emojiPrefix}Repo is Active !`;
     bgColor = "#1a8917";
@@ -152,10 +198,20 @@ function ToggleBanner(status, Toggle) {
   mainText.textContent = mainMessage;
   mainText.style.backgroundColor = bgColor;
 
+  if (detailsText) {
+    const detailMessage =
+      typeof window.__gp?.formatRepoStatusDetails === "function"
+        ? window.__gp.formatRepoStatusDetails(status, details, meta)
+        : "";
+    detailsText.textContent = detailMessage;
+    detailsText.style.display = detailMessage ? "block" : "none";
+  }
+
   // Update config link text
-  configLink.textContent = isRateLimited
-    ? "(GitHub API limit reached — Add your Personal Access Token)"
-    : "(According to your Configuration)";
+  configLink.textContent =
+    isRateLimited ? "(GitHub API limit reached — Add your Personal Access Token)" :
+    isUnsupported ? "(This host needs a GitPulse checker)" :
+    "(According to your Configuration)";
 
     
 }
@@ -168,8 +224,14 @@ window.gitpulseRefreshBanner = () => {
   if (!banner) return;
   const raw = banner.dataset?.gitpulseStatus || "";
   const status = raw === "true" ? true : raw === "false" ? false : raw;
-  if (status === "private" || status === "rate_limited" || status === true || status === false) {
-    ToggleBanner(status, banner.style.display !== "none");
+  let details = {};
+  try {
+    details = banner.dataset?.gitpulseDetails ? JSON.parse(banner.dataset.gitpulseDetails) : {};
+  } catch {
+    details = {};
+  }
+  if (status === "private" || status === "rate_limited" || status === "unsupported" || status === true || status === false) {
+    ToggleBanner(status, banner.style.display !== "none", details);
   }
 };
 window.__gp.refreshBanner = window.gitpulseRefreshBanner;

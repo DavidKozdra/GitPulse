@@ -70,7 +70,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: true,
       checkedAt: Date.now() - (1000 * 60 * 60 * 25), // 25h ago
-      v: 2,
+      v: 3,
     };
     const result = await readCache('old-key');
     expect(result).toBeNull();
@@ -81,7 +81,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: 'rate_limited',
       checkedAt: Date.now() - (1000 * 60 * 60 * 3), // 3h ago
-      v: 2,
+      v: 3,
     };
     const result = await readCache('rl-key');
     expect(result).toBeNull();
@@ -92,7 +92,7 @@ describe('cache helpers', () => {
     storage[full] = {
       isActive: 'rate_limited',
       checkedAt: Date.now() - (1000 * 60 * 60 * 1), // 1h ago
-      v: 2,
+      v: 3,
     };
     const result = await readCache('rl-valid');
     expect(result).not.toBeNull();
@@ -100,8 +100,8 @@ describe('cache helpers', () => {
   });
 
   test('clearCache removes all cache entries', async () => {
-    storage['repoCache:a'] = { isActive: true, checkedAt: Date.now(), v: 2 };
-    storage['repoCache:b'] = { isActive: false, checkedAt: Date.now(), v: 2 };
+    storage['repoCache:a'] = { isActive: true, checkedAt: Date.now(), v: 3 };
+    storage['repoCache:b'] = { isActive: false, checkedAt: Date.now(), v: 3 };
     storage['githubPAT'] = 'ghp_test';
 
     await clearCache();
@@ -129,7 +129,7 @@ describe('smartClearCache', () => {
   });
 
   test('clears cache when rule values change', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 2 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
     const oldCfg = { max_repo_update_time: { active: true, value: 365 } };
     const newCfg = { max_repo_update_time: { active: true, value: 180 } };
     await smartClearCache(oldCfg, newCfg);
@@ -137,7 +137,7 @@ describe('smartClearCache', () => {
   });
 
   test('does NOT clear cache for emoji-only changes', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 2 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
     const oldCfg = { emoji_active: { value: '✅' }, max_repo_update_time: { active: true, value: 365 } };
     const newCfg = { emoji_active: { value: '🚀' }, max_repo_update_time: { active: true, value: 365 } };
     const result = await smartClearCache(oldCfg, newCfg);
@@ -146,7 +146,7 @@ describe('smartClearCache', () => {
   });
 
   test('falls back to full clear when oldConfig is null', async () => {
-    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 2 };
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: 3 };
     await smartClearCache(null, {});
     expect(storage['repoCache:x']).toBeUndefined();
   });
@@ -163,7 +163,7 @@ describe('fetchRepoStatus cache behavior', () => {
       isActive: false,
       details: { source: 'cache' },
       checkedAt: Date.now(),
-      v: 2,
+      v: 3,
     };
     const sendResponse = jest.fn();
 
@@ -186,7 +186,7 @@ describe('fetchRepoStatus cache behavior', () => {
       isActive: false,
       details: { source: 'cache' },
       checkedAt: Date.now(),
-      v: 2,
+      v: 3,
     };
     fetch.mockResolvedValue({
       ok: true,
@@ -211,6 +211,65 @@ describe('fetchRepoStatus cache behavior', () => {
       result: expect.objectContaining({ status: true }),
     }));
     expect(storage['repoCache:codeberg.org/owner/repo'].isActive).toBe(true);
+  });
+
+  test('checks GitLab projects with the public API', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        last_activity_at: new Date().toISOString(),
+      }),
+    });
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://gitlab.com/group/project' },
+      {},
+      sendResponse
+    );
+
+    expect(fetch).toHaveBeenCalledWith('https://gitlab.com/api/v4/projects/group%2Fproject');
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({
+        status: true,
+        details: expect.objectContaining({ host: 'gitlab.com', projectPath: 'group/project' }),
+      }),
+    }));
+  });
+
+  test('checks npm packages with the registry API', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        time: { modified: new Date().toISOString() },
+        'dist-tags': { latest: '1.2.3' },
+      }),
+    });
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://www.npmjs.com/package/express' },
+      {},
+      sendResponse
+    );
+
+    expect(fetch).toHaveBeenCalledWith('https://registry.npmjs.org/express');
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({
+        status: true,
+        details: expect.objectContaining({ host: 'npmjs.com', packageName: 'express', latestVersion: '1.2.3' }),
+      }),
+    }));
+  });
+
+  test('returns unsupported instead of active for unknown fetch hosts', async () => {
+    const result = await fetchRepoStatusByUrl('https://example.test/owner/repo', {});
+    expect(result.status).toBe('unsupported');
   });
 });
 

@@ -2,6 +2,14 @@
 // Shared helpers for the content script (extracted from main.js)
 var rate_limited = false;
 
+const STATUS_LABELS = {
+  true: "Active repository",
+  false: "Inactive repository",
+  private: "Private repository",
+  rate_limited: "Rate limited",
+  unsupported: "Unsupported repository host",
+};
+
 function isReloadNavigation() {
   try {
     const perf = typeof performance !== "undefined" ? performance : null;
@@ -19,21 +27,124 @@ function isReloadNavigation() {
   }
 }
 
-async function isRepoActive(url, options = {}) {
+function formatRelativeDate(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const time = date.getTime();
+  if (!Number.isFinite(time)) return "";
+
+  const diffMs = Date.now() - time;
+  if (diffMs < 0) return "in the future";
+
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days < 60) return `${days} days ago`;
+
+  const months = Math.floor(days / 30);
+  if (months === 1) return "1 month ago";
+  if (months < 24) return `${months} months ago`;
+
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
+function formatRepoStatusDetails(status, details = {}, meta = {}) {
+  if (status === "unsupported") {
+    const host = details?.host || "this host";
+    return `GitPulse does not check ${host} yet.`;
+  }
+
+  if (details?.error) {
+    return `Check failed: ${String(details.error).replace(/^Error:\s*/, "")}`;
+  }
+
+  if (status === "private") {
+    return `${details?.host || "The host"} reports this item as private or unavailable.`;
+  }
+
+  if (status === "rate_limited") {
+    return "GitHub API limit reached. Add a token or try again later.";
+  }
+
+  const parts = [];
+  const activityAt = details?.pushedAt || details?.updatedAt;
+  const activityAgo = formatRelativeDate(activityAt);
+  if (activityAgo) parts.push(`Last activity ${activityAgo}`);
+
+  if (Number.isFinite(details?.openPrCount)) {
+    parts.push(`${details.openPrCount} open PRs`);
+  }
+
+  const closedPrAgo = formatRelativeDate(details?.lastClosedPrAt);
+  if (closedPrAgo) parts.push(`Last closed PR ${closedPrAgo}`);
+
+  const releaseAgo = formatRelativeDate(details?.lastReleaseAt);
+  if (releaseAgo) parts.push(`Last release ${releaseAgo}`);
+
+  if (details?.latestVersion) parts.push(`Latest ${details.latestVersion}`);
+
+  const failedChecks = [];
+  if (details?.isArchived === true) failedChecks.push("archived");
+  if (details?.pushOk === false) failedChecks.push("push recency");
+  if (details?.openPrsOk === false) failedChecks.push("open PR count");
+  if (details?.lastClosedPrOk === false) failedChecks.push("closed PR recency");
+  if (details?.issuesActivityOk === false) failedChecks.push("issue activity");
+  if (details?.releaseOk === false) failedChecks.push("release recency");
+  if (details?.openIssueAgeOk === false) failedChecks.push("open issue age");
+  if (failedChecks.length) parts.push(`Failed: ${failedChecks.join(", ")}`);
+
+  if (meta?.fromCache) parts.push("Cached result");
+
+  return parts.slice(0, 4).join(" | ");
+}
+
+function statusLabel(status) {
+  if (status === true) return STATUS_LABELS.true;
+  if (status === false) return STATUS_LABELS.false;
+  return STATUS_LABELS[status] || "Repository status";
+}
+
+async function getRepoStatus(url, options = {}) {
   const message = { action: "fetchRepoStatus", url };
   if (options.bypassCache === true) message.forceRefresh = true;
 
   const res = await ext.sendMessage(message);
   if (!res || res.ok === false) {
     console.warn("[Repo check] background error", res?.error);
-    return false; // fail closed
+    return {
+      status: false,
+      details: { error: res?.error || "Background check failed" },
+      fromCache: false,
+    };
   }
-  return res.result?.status; // true | false | "rate_limited" | "private"
+  return {
+    status: res.result?.status,
+    details: res.result?.details || {},
+    fromCache: !!res.fromCache,
+  };
 }
+
+async function isRepoActive(url, options = {}) {
+  const result = await getRepoStatus(url, options);
+  return result.status; // true | false | "rate_limited" | "private" | "unsupported"
+}
+
+globalThis.__gp = globalThis.__gp || {};
+globalThis.__gp.formatRepoStatusDetails = formatRepoStatusDetails;
+globalThis.__gp.statusLabel = statusLabel;
 
 // Export for Node test environment (jest) if available
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { isRepoUrl, getActiveConfigMetrics, isRepoActive, isReloadNavigation };
+  module.exports = {
+    isRepoUrl,
+    getActiveConfigMetrics,
+    getRepoStatus,
+    isRepoActive,
+    isReloadNavigation,
+    formatRepoStatusDetails,
+    statusLabel,
+  };
 }
 
 async function getCacheFromBackground(key) {

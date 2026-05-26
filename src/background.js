@@ -5,7 +5,7 @@ console.log("GitPulse SW started", chrome.runtime?.id);
 // Constants & helpers
 // ---------------------------
 const CACHE_PREFIX = "repoCache:";
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;   // 24h for normal entries
 const RATE_TTL_MS = 1000 * 60 * 60 * 2;    // 2h for rate-limited entries
 const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
@@ -33,6 +33,7 @@ const withinDays = (dateStr, maxDays) => {
 };
 const isString = (x) => typeof x === "string";
 const isPlainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+const DEFAULT_MAX_ACTIVITY_DAYS = 365;
 
 function validateSegment(segment) {
   if (typeof segment !== "string") throw new Error("Invalid path segment");
@@ -44,6 +45,83 @@ function validateSegment(segment) {
     throw new Error("Invalid path segment");
   }
   return value;
+}
+
+function validatePackageName(name) {
+  if (typeof name !== "string") throw new Error("Invalid package name");
+  const value = name.trim();
+  if (!value || value.includes("\\") || value.includes("..")) {
+    throw new Error("Unsafe package name");
+  }
+  if (!/^(@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/.test(value)) {
+    throw new Error("Invalid package name");
+  }
+  return value;
+}
+
+function maxActivityDays(rules) {
+  return Number.isFinite(rules.max_repo_update_time)
+    ? rules.max_repo_update_time
+    : DEFAULT_MAX_ACTIVITY_DAYS;
+}
+
+function activityStatus({ host, updatedAt, pushedAt, archived = false, details = {} }, rules) {
+  const activityAt = pushedAt || updatedAt;
+  const pushOk = !!activityAt && withinDays(activityAt, maxActivityDays(rules));
+  const isArchived = !!archived;
+
+  return {
+    status: !isArchived && pushOk ? true : false,
+    details: {
+      host,
+      updatedAt: updatedAt || null,
+      pushedAt: pushedAt || null,
+      pushOk,
+      isArchived,
+      ...details,
+    },
+  };
+}
+
+function rateLimitedStatus(host) {
+  return { status: "rate_limited", details: { host } };
+}
+
+function privateStatus(host) {
+  return { status: "private", details: { host } };
+}
+
+function unsupportedStatus(host, reason = "No checker is available for this host yet") {
+  return { status: "unsupported", details: { host, reason } };
+}
+
+async function fetchJson(url, options = {}) {
+  const response = Object.keys(options).length ? await fetch(url, options) : await fetch(url);
+  if (response.status === 429) return { response, data: null, rateLimited: true };
+  if (response.status === 403 && /api\.github\.com|crates\.io|hub\.docker\.com/.test(url)) {
+    return { response, data: null, rateLimited: true };
+  }
+  if (!response.ok) return { response, data: null, rateLimited: false };
+  return { response, data: await response.json(), rateLimited: false };
+}
+
+function maxIsoDate(values) {
+  let best = null;
+  let bestTime = -Infinity;
+  values.forEach((value) => {
+    if (!value) return;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > bestTime) {
+      bestTime = time;
+      best = value;
+    }
+  });
+  return best;
+}
+
+function splitBeforeGitLabMarker(parts) {
+  const markerIndex = parts.indexOf("-");
+  return markerIndex === -1 ? parts : parts.slice(0, markerIndex);
 }
 
 async function smartClearCache(oldConfig, newConfig) {
@@ -148,11 +226,17 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 
   // Archived repos are immediately inactive; no need to continue with more GitHub calls
   if (isArchived) {
-    return { status: false, details: { isArchived: true } };
+    return activityStatus({
+      host: "github.com",
+      pushedAt: repoData.pushed_at,
+      updatedAt: repoData.updated_at,
+      archived: true,
+    }, rules);
   }
 
   // 2) Open PR threshold (use search API for total_count)
   let openPrsOk = true;
+  let openPrCount = null;
   if (Number.isFinite(rules.open_prs_max)) {
     const prsRes = await fetch(
       `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:pr+is:open&per_page=1`,
@@ -161,11 +245,13 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     if (prsRes.status === 403) return { status: "rate_limited" };
     if (!prsRes.ok) throw new Error(`GitHub search PRs failed: ${prsRes.status}`);
     const prs = await prsRes.json();
-    openPrsOk = (prs.total_count || 0) <= rules.open_prs_max;
+    openPrCount = prs.total_count || 0;
+    openPrsOk = openPrCount <= rules.open_prs_max;
   }
 
   // 3) Last closed PR age
   let lastClosedPrOk = true;
+  let lastClosedPrAt = null;
   if (Number.isFinite(rules.last_closed_pr_max_days)) {
     const closedRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=1`,
@@ -174,8 +260,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     if (closedRes.status === 403) return { status: "rate_limited" };
     if (!closedRes.ok) throw new Error(`GitHub closed PRs failed: ${closedRes.status}`);
     const closed = await closedRes.json();
-    const lastClosed = closed?.[0]?.closed_at || closed?.[0]?.merged_at;
-    lastClosedPrOk = withinDays(lastClosed, rules.last_closed_pr_max_days);
+    lastClosedPrAt = closed?.[0]?.closed_at || closed?.[0]?.merged_at || null;
+    lastClosedPrOk = withinDays(lastClosedPrAt, rules.last_closed_pr_max_days);
   }
 
   // 4) Core push recency
@@ -186,6 +272,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 
   // 5) Issue activity recency
   let issuesActivityOk = true;
+  let lastIssueUpdatedAt = null;
   if (Number.isFinite(rules.max_issues_update_time)) {
     const issuesRes = await fetch(
       `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue&sort=updated&order=desc&per_page=1`,
@@ -194,12 +281,13 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     if (issuesRes.status === 403) return { status: "rate_limited" };
     if (!issuesRes.ok) throw new Error(`GitHub search issues failed: ${issuesRes.status}`);
     const issues = await issuesRes.json();
-    const lastIssueUpdated = issues?.items?.[0]?.updated_at;
-    issuesActivityOk = withinDays(lastIssueUpdated, rules.max_issues_update_time);
+    lastIssueUpdatedAt = issues?.items?.[0]?.updated_at || null;
+    issuesActivityOk = withinDays(lastIssueUpdatedAt, rules.max_issues_update_time);
   }
 
   // 6) Last release recency
   let releaseOk = true;
+  let lastReleaseAt = null;
   if (Number.isFinite(rules.max_days_since_last_release)) {
     const relRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/releases?per_page=1`,
@@ -207,7 +295,6 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     );
     if (relRes.status === 403) return { status: "rate_limited" };
     if (!relRes.ok && relRes.status !== 404) throw new Error(`GitHub releases failed: ${relRes.status}`);
-    let lastReleaseAt = null;
     if (relRes.ok) {
       const rels = await relRes.json();
       const rel = rels?.[0];
@@ -219,6 +306,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 
   // 7) Oldest open issue age
   let openIssueAgeOk = true;
+  let oldestOpenIssueCreatedAt = null;
   if (Number.isFinite(rules.max_open_issue_age)) {
     const oldestOpenRes = await fetch(
       `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue+is:open&sort=created&order=asc&per_page=1`,
@@ -227,15 +315,31 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     if (oldestOpenRes.status === 403) return { status: "rate_limited" };
     if (!oldestOpenRes.ok) throw new Error(`GitHub oldest open issue failed: ${oldestOpenRes.status}`);
     const oldest = await oldestOpenRes.json();
-    const oldestCreated = oldest?.items?.[0]?.created_at;
+    oldestOpenIssueCreatedAt = oldest?.items?.[0]?.created_at || null;
     // Pass if there are no open issues (items empty) or if oldest is within threshold
-    openIssueAgeOk = withinDays(oldestCreated, rules.max_open_issue_age);
+    openIssueAgeOk = withinDays(oldestOpenIssueCreatedAt, rules.max_open_issue_age);
   }
 
   const isActive = !isArchived && openPrsOk && lastClosedPrOk && pushOk && issuesActivityOk && releaseOk && openIssueAgeOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, openPrsOk, lastClosedPrOk, issuesActivityOk, releaseOk, openIssueAgeOk, isArchived }
+    details: {
+      host: "github.com",
+      pushedAt: repoData.pushed_at,
+      updatedAt: repoData.updated_at,
+      openPrCount,
+      lastClosedPrAt,
+      lastIssueUpdatedAt,
+      lastReleaseAt,
+      oldestOpenIssueCreatedAt,
+      pushOk,
+      openPrsOk,
+      lastClosedPrOk,
+      issuesActivityOk,
+      releaseOk,
+      openIssueAgeOk,
+      isArchived,
+    }
   };
 }
 
@@ -259,8 +363,187 @@ async function fetchCodebergRepoStatus({ owner, repo }, rules) {
   const isActive = !isArchived && pushOk;
   return {
     status: isActive ? true : false,
-    details: { pushOk, isArchived }
+    details: {
+      host: "codeberg.org",
+      updatedAt: repoData.updated_at,
+      pushedAt: repoData.updated_at,
+      pushOk,
+      isArchived,
+    }
   };
+}
+
+async function fetchGitlabRepoStatus({ projectPath }, rules) {
+  const url = `https://gitlab.com/api/v4/projects/${encodeURIComponent(projectPath)}`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("gitlab.com");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("gitlab.com");
+  }
+  if (!response.ok) throw new Error(`GitLab project API failed: ${response.status}`);
+
+  return activityStatus({
+    host: "gitlab.com",
+    updatedAt: data.last_activity_at || data.updated_at,
+    archived: !!data.archived,
+    details: { projectPath },
+  }, rules);
+}
+
+async function fetchBitbucketRepoStatus({ workspace, repo }, rules) {
+  const url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("bitbucket.org");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("bitbucket.org");
+  }
+  if (!response.ok) throw new Error(`Bitbucket repository API failed: ${response.status}`);
+  if (data.is_private === true) return privateStatus("bitbucket.org");
+
+  return activityStatus({
+    host: "bitbucket.org",
+    updatedAt: data.updated_on || data.created_on,
+    details: { workspace, repo },
+  }, rules);
+}
+
+async function fetchNpmPackageStatus({ packageName }, rules) {
+  const url = `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("npmjs.com");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("npmjs.com");
+  }
+  if (!response.ok) throw new Error(`npm registry API failed: ${response.status}`);
+
+  return activityStatus({
+    host: "npmjs.com",
+    updatedAt: data?.time?.modified || null,
+    archived: !!data?.time?.unpublished,
+    details: { packageName, latestVersion: data?.["dist-tags"]?.latest || null },
+  }, rules);
+}
+
+async function fetchDockerHubRepoStatus({ namespace, repo }, rules) {
+  const url = `https://hub.docker.com/v2/repositories/${namespace}/${repo}/`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("hub.docker.com");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("hub.docker.com");
+  }
+  if (!response.ok) throw new Error(`Docker Hub API failed: ${response.status}`);
+  if (data.is_private === true) return privateStatus("hub.docker.com");
+
+  return activityStatus({
+    host: "hub.docker.com",
+    updatedAt: data.last_updated || data.updated_at || data.date_registered,
+    details: {
+      namespace,
+      repo,
+      pullCount: Number.isFinite(data.pull_count) ? data.pull_count : null,
+      starCount: Number.isFinite(data.star_count) ? data.star_count : null,
+    },
+  }, rules);
+}
+
+async function fetchPypiProjectStatus({ project }, rules) {
+  const url = `https://pypi.org/pypi/${encodeURIComponent(project)}/json`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("pypi.org");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("pypi.org");
+  }
+  if (!response.ok) throw new Error(`PyPI API failed: ${response.status}`);
+
+  const releaseDates = [];
+  Object.values(data.releases || {}).forEach((files) => {
+    if (!Array.isArray(files)) return;
+    files.forEach((file) => releaseDates.push(file.upload_time_iso_8601 || file.upload_time));
+  });
+
+  return activityStatus({
+    host: "pypi.org",
+    updatedAt: maxIsoDate(releaseDates),
+    details: { project, latestVersion: data?.info?.version || null },
+  }, rules);
+}
+
+async function fetchCratesStatus({ crate }, rules) {
+  const url = `https://crates.io/api/v1/crates/${encodeURIComponent(crate)}`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("crates.io");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("crates.io");
+  }
+  if (!response.ok) throw new Error(`crates.io API failed: ${response.status}`);
+
+  return activityStatus({
+    host: "crates.io",
+    updatedAt: data?.crate?.updated_at || data?.crate?.created_at,
+    details: { crate, latestVersion: data?.crate?.max_version || null },
+  }, rules);
+}
+
+async function fetchPackagistStatus({ vendor, packageName }, rules) {
+  const fullName = `${vendor}/${packageName}`;
+  const url = `https://repo.packagist.org/p2/${vendor}/${packageName}.json`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("packagist.org");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("packagist.org");
+  }
+  if (!response.ok) throw new Error(`Packagist API failed: ${response.status}`);
+
+  const versions = data?.packages?.[fullName] || [];
+  const updatedAt = maxIsoDate(versions.map((version) => version.time));
+
+  return activityStatus({
+    host: "packagist.org",
+    updatedAt,
+    details: { packageName: fullName, latestVersion: versions?.[0]?.version || null },
+  }, rules);
+}
+
+function newestDatetimeFromHtml(html) {
+  const matches = [...String(html).matchAll(/datetime=["']([^"']+)["']/gi)];
+  return maxIsoDate(matches.map((match) => match[1]));
+}
+
+async function fetchSourcehutRepoStatus({ owner, repo }, rules) {
+  const url = `https://git.sr.ht/${owner}/${repo}`;
+  const response = await fetch(url);
+  if (response.status === 429) return rateLimitedStatus("git.sr.ht");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("git.sr.ht");
+  }
+  if (!response.ok) throw new Error(`SourceHut page fetch failed: ${response.status}`);
+
+  const html = await response.text();
+  const updatedAt = newestDatetimeFromHtml(html);
+  if (!updatedAt) return unsupportedStatus("git.sr.ht", "No activity timestamp found on the repository page");
+
+  return activityStatus({
+    host: "git.sr.ht",
+    updatedAt,
+    details: { owner, repo },
+  }, rules);
+}
+
+async function fetchLaunchpadStatus({ project }, rules) {
+  const url = `https://api.launchpad.net/1.0/${project}`;
+  const { response, data, rateLimited } = await fetchJson(url);
+  if (rateLimited) return rateLimitedStatus("launchpad.net");
+  if (response.status === 404 || response.status === 401 || response.status === 403) {
+    return privateStatus("launchpad.net");
+  }
+  if (!response.ok) throw new Error(`Launchpad API failed: ${response.status}`);
+
+  return activityStatus({
+    host: "launchpad.net",
+    updatedAt: data.date_last_updated || data.date_created,
+    archived: data.active === false,
+    details: { project },
+  }, rules);
 }
 
 // Supabase config for unauthenticated GitHub status checks
@@ -302,6 +585,13 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
   const pat = await getPAT(); // existing function that returns the user's PAT or null
 
   switch (hostname) {
+    case "gitlab.com": {
+      const repoParts = splitBeforeGitLabMarker(parts);
+      if (repoParts.length < 2) throw new Error("Invalid GitLab URL");
+      const projectPath = repoParts.map(validateSegment).join("/");
+      return fetchGitlabRepoStatus({ projectPath }, rules);
+    }
+
     case "codeberg.org": {
       if (parts.length < 2) throw new Error("Invalid Codeberg URL");
       const owner = validateSegment(parts[0]);
@@ -326,9 +616,63 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       return fetchGithubRepoStatusViaSupabase({ owner, repo }, rules);
     }
 
+    case "bitbucket.org": {
+      if (parts.length < 2) throw new Error("Invalid Bitbucket URL");
+      const workspace = validateSegment(parts[0]);
+      const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
+      return fetchBitbucketRepoStatus({ workspace, repo }, rules);
+    }
+
+    case "www.npmjs.com":
+    case "npmjs.com": {
+      if (parts[0] !== "package" || parts.length < 2) throw new Error("Invalid npm package URL");
+      const packageName = parts[1]?.startsWith("@")
+        ? validatePackageName(`${parts[1]}/${parts[2] || ""}`)
+        : validatePackageName(parts[1]);
+      return fetchNpmPackageStatus({ packageName }, rules);
+    }
+
+    case "hub.docker.com": {
+      if (parts[0] !== "r" || parts.length < 3) throw new Error("Invalid Docker Hub URL");
+      const namespace = validateSegment(parts[1]);
+      const repo = validateSegment(parts[2]);
+      return fetchDockerHubRepoStatus({ namespace, repo }, rules);
+    }
+
+    case "pypi.org": {
+      if (parts[0] !== "project" || parts.length < 2) throw new Error("Invalid PyPI project URL");
+      const project = validatePackageName(parts[1]);
+      return fetchPypiProjectStatus({ project }, rules);
+    }
+
+    case "crates.io": {
+      if (parts[0] !== "crates" || parts.length < 2) throw new Error("Invalid crates.io URL");
+      const crate = validatePackageName(parts[1]);
+      return fetchCratesStatus({ crate }, rules);
+    }
+
+    case "packagist.org": {
+      if (parts[0] !== "packages" || parts.length < 3) throw new Error("Invalid Packagist URL");
+      const vendor = validateSegment(parts[1]);
+      const packageName = validateSegment(parts[2]);
+      return fetchPackagistStatus({ vendor, packageName }, rules);
+    }
+
+    case "git.sr.ht": {
+      if (parts.length < 2) throw new Error("Invalid SourceHut URL");
+      const owner = validateSegment(parts[0]);
+      const repo = validateSegment((parts[1] || "").replace(/\.git$/i, ""));
+      return fetchSourcehutRepoStatus({ owner, repo }, rules);
+    }
+
+    case "launchpad.net": {
+      if (parts.length < 1) throw new Error("Invalid Launchpad URL");
+      const project = validateSegment(parts[0]);
+      return fetchLaunchpadStatus({ project }, rules);
+    }
+
     default:
-      // No integration → assume active to avoid blocking
-      return { status: true };
+      return unsupportedStatus(hostname);
   }
 }
 

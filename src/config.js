@@ -88,6 +88,13 @@ const defaultConfig = {
     type: "text",
     active: true,
     order: 93
+  },
+  emoji_unsupported: {
+    name: "Emoji for unsupported host",
+    value: "❔",
+    type: "text",
+    active: true,
+    order: 94
   }
 };
 
@@ -162,4 +169,3 @@ async function resetConfig() {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { CONFIG_KEY, defaultConfig, validateConfig, loadConfig, saveConfig, resetConfig };
 }
-

@@ -69,13 +69,15 @@ async function bootstrap(options = {}) {
   if (onRepoPage) {
     // Show banner for repo pages
     if (isGithubRepoPrivate()) {
-      ToggleBanner("private",true);
+      ToggleBanner("private", true, { host: "github.com" });
     } else {
-      const status = await isRepoActive(currentUrl, {
+      const result = typeof getRepoStatus === "function" ? await getRepoStatus(currentUrl, {
         bypassCache: options.bypassCacheForCurrentUrl === true
-      });
-     
-      ToggleBanner(status,true);
+      }) : { status: await isRepoActive(currentUrl, {
+        bypassCache: options.bypassCacheForCurrentUrl === true
+      }), details: {}, fromCache: false };
+
+      ToggleBanner(result.status, true, result.details || {}, { fromCache: result.fromCache });
     }
   } else {
     // Mark repo links on search/discovery pages
@@ -89,6 +91,14 @@ async function bootstrap(options = {}) {
       window.__gitpulseLinkObserver.observe(document.body, { childList: true, subtree: true });
     }
   }
+
+  window.gitpulseRefreshCurrentRepo = async () => {
+    const url = window.location.href;
+    const result = typeof getRepoStatus === "function"
+      ? await getRepoStatus(url, { bypassCache: true })
+      : { status: await isRepoActive(url, { bypassCache: true }), details: {}, fromCache: false };
+    ToggleBanner(result.status, true, result.details || {}, { fromCache: false });
+  };
 
   // Install config change listener once per page context.
   window.__gp = window.__gp || {};
@@ -165,13 +175,15 @@ function _handleConfigChange(changes, mergeConfig) {
               }
             }
             if (isGithubRepoPrivate()) {
-              ToggleBanner("private", true);
+              ToggleBanner("private", true, { host: "github.com" });
             } else {
-              const status = await isRepoActive(url);
-              ToggleBanner(status, true);
+              const result = typeof getRepoStatus === "function"
+                ? await getRepoStatus(url)
+                : { status: await isRepoActive(url), details: {}, fromCache: false };
+              ToggleBanner(result.status, true, result.details || {}, { fromCache: result.fromCache });
             }
           } catch {
-            ToggleBanner(false, true);
+            ToggleBanner(false, true, { error: "Failed to refresh status" });
           }
         })();
 

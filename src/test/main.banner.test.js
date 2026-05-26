@@ -10,6 +10,7 @@ global.config = {
   emoji_inactive: { active: true, value: '❌' },
   emoji_private: { active: true, value: '🔒' },
   emoji_rate_limited: { active: true, value: '⏳' },
+  emoji_unsupported: { active: true, value: '❔' },
 };
 
 global.ext = {
@@ -46,6 +47,12 @@ describe('ensureBannerExists', () => {
     ensureBannerExists();
     const closeBtn = document.getElementById('banner-close');
     expect(closeBtn).not.toBeNull();
+  });
+
+  test('banner has refresh button', () => {
+    ensureBannerExists();
+    const refreshBtn = document.getElementById('banner-refresh');
+    expect(refreshBtn).not.toBeNull();
   });
 
   test('banner has text container', () => {
@@ -97,6 +104,13 @@ describe('ToggleBanner', () => {
     expect(mainText.style.backgroundColor).toMatch(/(#555|rgb\(85, 85, 85\))/);
   });
 
+  test('shows unsupported banner with gray-blue color', () => {
+    ToggleBanner('unsupported', true);
+    const mainText = document.querySelector('.banner-main-text');
+    expect(mainText.textContent).toContain('Host Not Supported');
+    expect(mainText.style.backgroundColor).toMatch(/(#6a737d|rgb\(106, 115, 125\))/);
+  });
+
   test('hides banner when Toggle is false', () => {
     ToggleBanner(true, false);
     const banner = document.getElementById('my-banner');
@@ -121,6 +135,16 @@ describe('ToggleBanner', () => {
     const mainText = document.querySelector('.banner-main-text');
     expect(mainText.textContent).toContain('🚀');
     global.config.emoji_active.value = '✅'; // restore
+  });
+
+  test('shows details when provided', () => {
+    window.__gp = {
+      ...window.__gp,
+      formatRepoStatusDetails: () => 'Last activity today',
+    };
+    ToggleBanner(true, true, { updatedAt: new Date().toISOString() });
+    const detailsText = document.querySelector('.banner-details-text');
+    expect(detailsText.textContent).toContain('Last activity today');
   });
 });
 

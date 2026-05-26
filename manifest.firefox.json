@@ -9,7 +9,18 @@
                         "tabs",
                         "https://api.github.com/*",
                         "https://github.com/*",
-                        "https://codeberg.org/*"
+                        "https://wmzfmdgkixsgmhmzpwlq.supabase.co/*",
+                        "https://codeberg.org/*",
+                        "https://gitlab.com/*",
+                        "https://api.bitbucket.org/*",
+                        "https://registry.npmjs.org/*",
+                        "https://hub.docker.com/*",
+                        "https://pypi.org/*",
+                        "https://crates.io/*",
+                        "https://packagist.org/*",
+                        "https://repo.packagist.org/*",
+                        "https://git.sr.ht/*",
+                        "https://api.launchpad.net/*"
                     ],
     "content_scripts":  [
                             {

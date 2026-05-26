@@ -17,9 +17,11 @@ https://chromewebstore.google.com/detail/gitpulse/fiamhceclfnbckgpnmpkhldgbdhiam
 ## ✨ Features
 
 * 🏷️ **Archive Banner** – Instantly see if a repo is archived with a clear warning at the top.
-* 🔍 **Activity Check** – Verify if a repo is still active based on your own configurable rules.
+* 🔍 **Activity Check** – Verify if a repo or package is still active based on your own configurable rules.
 * ⚡ **Time Saver** – No more endless Google searches or wasted clicks into inactive projects.
 * ⚙️ **Customizable** – Define thresholds and rules for what you consider "inactive."
+* 🧭 **Multi-host support** – Checks GitHub, Codeberg, GitLab, Bitbucket, npm, Docker Hub, PyPI, crates.io, Packagist, SourceHut, and Launchpad links.
+* 📋 **Status details** – Shows why a repo or package was marked active, inactive, private, rate-limited, or unsupported.
 
 ## 📷 Preview
 

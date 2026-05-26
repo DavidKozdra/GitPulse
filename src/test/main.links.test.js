@@ -10,6 +10,7 @@ global.config = {
   emoji_inactive: { active: true, value: '❌' },
   emoji_private: { active: true, value: '🔒' },
   emoji_rate_limited: { active: true, value: '⏳' },
+  emoji_unsupported: { active: true, value: '❔' },
 };
 
 global.ext = {
@@ -45,6 +46,10 @@ describe('normalizeStatus', () => {
     expect(normalizeStatus('rate_limited')).toBe('rate_limited');
   });
 
+  test('passes through "unsupported"', () => {
+    expect(normalizeStatus('unsupported')).toBe('unsupported');
+  });
+
   test('returns empty string for unknown values', () => {
     expect(normalizeStatus(null)).toBe('');
     expect(normalizeStatus(undefined)).toBe('');
@@ -63,6 +68,7 @@ describe('parseStatus', () => {
   test('parses "private" and "rate_limited"', () => {
     expect(parseStatus('private')).toBe('private');
     expect(parseStatus('rate_limited')).toBe('rate_limited');
+    expect(parseStatus('unsupported')).toBe('unsupported');
   });
 
   test('returns null for unknown values', () => {
@@ -94,6 +100,11 @@ describe('emojiForStatus', () => {
   test('returns rate_limited emoji', () => {
     const result = emojiForStatus('rate_limited');
     expect(result.icon).toBe('⏳');
+  });
+
+  test('returns unsupported emoji', () => {
+    const result = emojiForStatus('unsupported');
+    expect(result.icon).toBe('❔');
   });
 
   test('returns null for unknown status', () => {

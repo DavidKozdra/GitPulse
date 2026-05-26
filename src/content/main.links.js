@@ -8,14 +8,14 @@ const LINK_MARK_SELECTOR = 'span.repo-checker-mark[data-gitpulse-mark="1"]';
 function normalizeStatus(status) {
   if (status === true) return "true";
   if (status === false) return "false";
-  if (status === "private" || status === "rate_limited") return status;
+  if (status === "private" || status === "rate_limited" || status === "unsupported") return status;
   return "";
 }
 
 function parseStatus(normalized) {
   if (normalized === "true") return true;
   if (normalized === "false") return false;
-  if (normalized === "private" || normalized === "rate_limited") return normalized;
+  if (normalized === "private" || normalized === "rate_limited" || normalized === "unsupported") return normalized;
   return null;
 }
 
@@ -36,6 +36,11 @@ function emojiForStatus(status) {
     const e = pick("emoji_rate_limited", "⏳");
     if (!e) return null;
     return { icon: e, color: "#f57c00", title: "Rate limited" };
+  }
+  if (status === "unsupported") {
+    const e = pick("emoji_unsupported", "❔");
+    if (!e) return null;
+    return { icon: e, color: "#6a737d", title: "Unsupported repository host" };
   }
   if (status === true) {
     const e = pick("emoji_active", "✅");
@@ -59,7 +64,13 @@ function findOrAdoptLegacyMark(link) {
   if (!first || first.tagName !== "SPAN") return null;
   if (first.getAttribute("aria-hidden") !== "true") return null;
   const title = first.title || "";
-  const known = new Set(["Active repository", "Inactive repository", "Private repository", "Rate limited"]);
+  const known = new Set([
+    "Active repository",
+    "Inactive repository",
+    "Private repository",
+    "Rate limited",
+    "Unsupported repository host",
+  ]);
   if (!known.has(title)) return null;
   if ((first.textContent || "").trim().length > 4) return null;
 
@@ -68,10 +79,26 @@ function findOrAdoptLegacyMark(link) {
   return first;
 }
 
-function setOrRemoveLinkMark(link, status) {
+function readStoredDetails(link) {
+  try {
+    const raw = link.getAttribute("data-gitpulse-details");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
   const normalized = normalizeStatus(status);
   if (normalized) {
     link.setAttribute(LINK_STATUS_ATTR, normalized);
+  }
+  if (details && Object.keys(details).length) {
+    try {
+      link.setAttribute("data-gitpulse-details", JSON.stringify(details));
+    } catch {
+      // ignore
+    }
   }
 
   const emoji = emojiForStatus(status);
@@ -97,7 +124,11 @@ function setOrRemoveLinkMark(link, status) {
 
   mark.textContent = `${emoji.icon} `;
   mark.style.color = emoji.color;
-  mark.title = emoji.title;
+  const detailText =
+    typeof window.__gp?.formatRepoStatusDetails === "function"
+      ? window.__gp.formatRepoStatusDetails(status, details, meta)
+      : "";
+  mark.title = detailText ? `${emoji.title}: ${detailText}` : emoji.title;
 }
 
 // Simple concurrency pool for promises
@@ -149,23 +180,31 @@ async function processUniqueUrls(map) {
 
     tasks.push(async () => {
       const url = elements[0].href;
-      let status;
+      let result;
       try {
-        const res = await isRepoActive(url);
-        status = res;
+        result = typeof getRepoStatus === "function"
+          ? await getRepoStatus(url)
+          : { status: await isRepoActive(url), details: {}, fromCache: false };
       } catch (e) {
         console.warn('[link-check] error', e);
-        status = false; // fail-closed
+        result = { status: false, details: { error: String(e) }, fromCache: false }; // fail-closed
       }
-      __linkStatusCache.set(key, status);
-      elements.forEach(el => annotateLink(el, status));
+      __linkStatusCache.set(key, result);
+      elements.forEach(el => annotateLink(el, result));
     });
   }
   await runWithConcurrency(tasks, 6);
 }
 
-function annotateLink(link, status) {
-  setOrRemoveLinkMark(link, status);
+function annotateLink(link, result) {
+  const status = isPlainStatusResult(result) ? result.status : result;
+  const details = isPlainStatusResult(result) ? result.details || {} : {};
+  const meta = isPlainStatusResult(result) ? { fromCache: result.fromCache } : {};
+  setOrRemoveLinkMark(link, status, details, meta);
+}
+
+function isPlainStatusResult(value) {
+  return !!value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "status");
 }
 
 function refreshAllLinkMarks() {
@@ -187,7 +226,7 @@ function refreshAllLinkMarks() {
   for (const link of links) {
     const status = parseStatus(link.getAttribute(LINK_STATUS_ATTR));
     if (status === null) continue;
-    setOrRemoveLinkMark(link, status);
+    setOrRemoveLinkMark(link, status, readStoredDetails(link));
   }
 }
 

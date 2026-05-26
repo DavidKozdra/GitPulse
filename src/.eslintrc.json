@@ -19,6 +19,7 @@
     "waitForGithubRepoIndicators": "readonly",
     "ToggleBanner": "readonly",
     "isGithubRepoPrivate": "readonly",
+    "getRepoStatus": "readonly",
     "isRepoActive": "readonly",
     "isReloadNavigation": "readonly",
     "markRepoLinks": "readonly",
