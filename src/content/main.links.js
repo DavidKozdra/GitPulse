@@ -246,14 +246,22 @@ function dedupeLinks(links) {
   }
 
   // Group the winners by repo root key so sub-pages of the same repo share one fetch.
-  const map = new Map(); // rootKey -> array of elements
+  // Keep only the best element per root key (most visible text), so sub-page links
+  // like /stargazers or /forks don't each get their own badge.
+  const map = new Map(); // rootKey -> [bestElement]
   for (const [href, el] of byHref) {
     try {
       const u = new URL(href);
       const parts = u.pathname.split("/").filter(Boolean);
       const key = repoRootKey(u.hostname, parts);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(el);
+      if (!map.has(key)) {
+        map.set(key, [el]);
+      } else {
+        const existing = map.get(key)[0];
+        if ((el.textContent || "").trim().length > (existing.textContent || "").trim().length) {
+          map.set(key, [el]);
+        }
+      }
     } catch {
       // ignore
     }

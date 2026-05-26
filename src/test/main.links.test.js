@@ -147,8 +147,29 @@ describe('dedupeLinks', () => {
 
     const map = dedupeLinks([link1, link2, link3]);
     expect(map.size).toBe(2);
-    expect(map.get('github.com/octocat/Hello-World').length).toBe(2);
+    // Only one element per root key — same-href duplicates are collapsed
+    expect(map.get('github.com/octocat/Hello-World').length).toBe(1);
     expect(map.get('github.com/other/repo').length).toBe(1);
+  });
+
+  test('dedupes sub-page links to one badge per repo root', () => {
+    // GitHub profile pages have /stargazers and /forks links alongside the repo name link.
+    // All share the same root key and should only produce one badge.
+    const nameLink = document.createElement('a');
+    nameLink.href = 'https://github.com/octocat/Hello-World';
+    nameLink.textContent = 'Hello-World';
+    const starsLink = document.createElement('a');
+    starsLink.href = 'https://github.com/octocat/Hello-World/stargazers';
+    starsLink.textContent = '42';
+    const forksLink = document.createElement('a');
+    forksLink.href = 'https://github.com/octocat/Hello-World/forks';
+    forksLink.textContent = '7';
+
+    const map = dedupeLinks([nameLink, starsLink, forksLink]);
+    expect(map.size).toBe(1);
+    expect(map.get('github.com/octocat/Hello-World').length).toBe(1);
+    // The element with the most text (nameLink) should be chosen
+    expect(map.get('github.com/octocat/Hello-World')[0].textContent).toBe('Hello-World');
   });
 
   test('skips non-repo URLs', () => {

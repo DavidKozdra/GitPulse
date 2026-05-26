@@ -14,53 +14,37 @@ const defaultConfig = {
   },
   open_prs_max: {
     name: "Max number of open PRs",
-    value: 50,
+    value: 20,
     type: "number",
-    active: false,
+    active: true,
     order: 3
   },
   last_closed_pr_max_days: {
     name: "Max days since last closed PR",
     value: 90,
     type: "number",
-    active: false,
+    active: true,
     order: 4
   },
-
-  // Additional, not yet enforced by background.js (future use)
   max_issues_update_time: {
     name: "Max days since last issue activity",
-    value: 365,
+    value: 180,
     type: "number",
-    active: false,
+    active: true,
     order: 20
   },
   max_days_since_last_release: {
     name: "Max days since last release",
-    value: 180,
+    value: 365,
     type: "number",
-    active: false,
+    active: true,
     order: 21
-  },
-  max_days_since_last_contributor: {
-    name: "Max days since last active contributor",
-    value: 180,
-    type: "number",
-    active: false,
-    order: 22
-  },
-  max_avg_commit_per_week: {
-    name: "Max average commits per week",
-    value: 0.5,
-    type: "number",
-    active: false,
-    order: 23
   },
   max_open_issue_age: {
     name: "Max age of open issues in days",
-    value: 90,
+    value: 365,
     type: "number",
-    active: false,
+    active: true,
     order: 24
   },
   grading_enabled: {
