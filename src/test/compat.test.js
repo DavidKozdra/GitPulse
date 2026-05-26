@@ -1,8 +1,13 @@
 const fs = require('fs');
 
+// compat.js normalizes browser.* and chrome.* APIs into window.ext. The source
+// is evaluated for each scenario so the tests can swap available APIs and verify
+// the fallback behavior independently.
 const compatSource = fs.readFileSync(require.resolve('../compat.js'), 'utf8');
 
 function resetExtensionApis() {
+  // Clear both Node globals and jsdom window globals. compat.js writes to window,
+  // while tests often install mocks on both objects for convenience.
   delete global.browser;
   delete global.chrome;
   delete global.ext;
@@ -13,6 +18,8 @@ function resetExtensionApis() {
 }
 
 function loadCompat({ browserApi, chromeApi } = {}) {
+  // Install the requested API combination and return the normalized ext facade
+  // that compat.js exposes to the rest of the extension.
   resetExtensionApis();
 
   if (browserApi) {
@@ -34,6 +41,8 @@ afterEach(() => {
 });
 
 describe('compat shim', () => {
+  // These are regression tests for mixed browser/chrome environments. The shim
+  // must fall back per API area rather than assuming one namespace is complete.
   test('falls back to chrome.storage.onChanged when browser event is missing', () => {
     const chromeAddListener = jest.fn();
     const chromeRemoveListener = jest.fn();

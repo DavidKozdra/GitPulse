@@ -84,6 +84,8 @@
   ];
 
   function uniqByChar(arr) {
+    // Curated and generated ranges can overlap. Keep the first occurrence so
+    // curated names/search terms win over anonymous generated entries.
     const seen = new Set();
     const out = [];
     for (const it of arr) {
@@ -96,7 +98,8 @@
   }
 
   function generateFromRanges() {
-    // Broad emoji-heavy ranges
+    // Broad emoji-heavy ranges. Generated items usually have no searchable name,
+    // but they let users paste/search by exact character or codepoint.
     const ranges = [
       [0x1F300, 0x1F5FF], // Misc Symbols and Pictographs
       [0x1F600, 0x1F64F], // Emoticons
@@ -135,6 +138,8 @@
   const list = uniqByChar([...curated, ...generated]);
 
   function tokenize(str) {
+    // Search terms are simple whitespace tokens because the curated names are a
+    // compact bag of aliases rather than natural-language descriptions.
     return (str || "")
       .toLowerCase()
       .split(/\s+/)
@@ -142,6 +147,9 @@
   }
 
   function search(query, limit = 250) {
+    // The search scorer is intentionally small: exact character wins, codepoint
+    // lookups are next, then all query tokens must appear somewhere in the
+    // curated name aliases.
     const raw = (query || "").trim();
     const q = raw.toLowerCase();
     if (!q) return list.slice(0, limit);
@@ -216,4 +224,3 @@
     search
   };
 })();
-

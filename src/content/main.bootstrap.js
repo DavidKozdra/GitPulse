@@ -1,11 +1,19 @@
 // main.bootstrap.js
+//
+// Bootstrap coordinates the content-script modules after they are loaded by the
+// manifest: config.js, helpers, banner, links, detection, then this file. It
+// decides whether the page needs a top banner or inline link markers.
 (async function init() {
+  // Reloads should bypass the current-page cache once, because users commonly
+  // reload when they expect freshly fetched repository state.
   const bypassInitialRepoStatusCache = isReloadNavigation();
   await safeBootstrap({ bypassCacheForCurrentUrl: bypassInitialRepoStatusCache });
 
   let lastUrl = location.href;
 
   new MutationObserver(async () => {
+    // GitHub and many registry pages update via client-side navigation. Watch
+    // for location changes and rerun bootstrap after the extension APIs settle.
     const currentUrl = location.href;
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
@@ -19,10 +27,13 @@
 })();
 
 function delay(ms) {
+  // Small sleep helper used for SPA navigation and retry backoff.
   return new Promise(r => setTimeout(r, ms));
 }
 
 async function safeBootstrap(options = {}) {
+  // Content scripts can run while the host page is still replacing DOM nodes or
+  // while extension APIs are briefly unavailable. Retry once before giving up.
   try {
     await bootstrap(options);
   } catch (err) {
@@ -37,6 +48,8 @@ async function safeBootstrap(options = {}) {
 }
 
 async function bootstrap(options = {}) {
+  // Merge stored user config over defaults while preserving unknown future keys.
+  // This mirrors popup.js/config.js behavior for content-side rendering.
   const mergeConfig = (storedCfg) => {
     const merged = { ...defaultConfig };
     if (storedCfg) {
@@ -54,6 +67,8 @@ async function bootstrap(options = {}) {
   let onRepoPage = isRepoUrl(currentUrl);
 
   if (looksLikeGithubRepoUrl(currentUrl)) {
+    // GitHub profiles and repository pages can both look like /owner/name in the
+    // URL. Confirm with DOM markers before showing a repository banner.
     const confirmed = await waitForGithubRepoIndicators();
     if (confirmed) {
       onRepoPage = true;
@@ -85,6 +100,8 @@ async function bootstrap(options = {}) {
 
     // Keep updating marks for dynamic pages.
     if (!window.__gitpulseLinkObserver) {
+      // Install only one observer per page context; repeated bootstrap runs
+      // should reuse it instead of stacking duplicate DOM watchers.
       window.__gitpulseLinkObserver = new MutationObserver(() => {
         try { markRepoLinks(); } catch { /* ignore */ }
       });
@@ -93,6 +110,8 @@ async function bootstrap(options = {}) {
   }
 
   window.gitpulseRefreshCurrentRepo = async () => {
+    // The banner refresh button calls this function. Force refresh skips cache
+    // for the visible repository but still stores the new result afterward.
     const url = window.location.href;
     const result = typeof getRepoStatus === "function"
       ? await getRepoStatus(url, { bypassCache: true })
@@ -132,6 +151,9 @@ async function bootstrap(options = {}) {
 }
 
 function _handleConfigChange(changes, mergeConfig) {
+      // Recompute the merged config and decide whether the change affects only
+      // presentation (emoji) or status rules. Emoji-only changes can repaint
+      // existing UI; rule changes need a fresh status check or link rescan.
       const prev = config;
       config = mergeConfig(changes.repoCheckerConfig.newValue);
 

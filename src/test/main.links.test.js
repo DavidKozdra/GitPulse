@@ -2,9 +2,14 @@
  * @jest-environment jsdom
  */
 
-// Test link deduplication, marking, and concurrency pool
+// Test link deduplication, marking, and concurrency pool.
+//
+// main.links.js is loaded as a browser content script, so this suite evaluates
+// it in jsdom after installing the globals it normally receives from helpers,
+// config, and compat.js. The tests focus on DOM mutations and request fan-out.
 
-// Set up globals that main.links.js expects
+// Set up globals that main.links.js expects. Emoji config mirrors the default
+// user-visible states so renderer tests cover every supported status value.
 global.config = {
   emoji_active: { active: true, value: '✅' },
   emoji_inactive: { active: true, value: '❌' },
@@ -17,10 +22,12 @@ global.ext = {
   sendMessage: jest.fn(),
 };
 
-// Set up __gp namespace (normally created by main.helpers.js)
+// Set up __gp namespace (normally created by main.helpers.js). Individual tests
+// can attach formatter functions here when tooltip details are relevant.
 global.__gp = {};
 
-// Load helpers first (provides isRepoUrl)
+// Load helpers first because dedupeLinks calls isRepoUrl to decide which anchors
+// are repository/package links worth annotating.
 const { isRepoUrl } = require('../content/main.helpers');
 global.isRepoUrl = isRepoUrl;
 
@@ -30,6 +37,7 @@ const linksSource = fs.readFileSync(require.resolve('../content/main.links.js'),
 eval(linksSource);
 
 describe('normalizeStatus', () => {
+  // Status values are a mixed union in JS but must be strings in DOM attributes.
   test('converts true to "true"', () => {
     expect(normalizeStatus(true)).toBe('true');
   });
@@ -57,6 +65,8 @@ describe('normalizeStatus', () => {
 });
 
 describe('parseStatus', () => {
+  // parseStatus is the inverse used when config changes repaint existing marks
+  // without another background fetch.
   test('parses "true" back to boolean true', () => {
     expect(parseStatus('true')).toBe(true);
   });
@@ -78,6 +88,8 @@ describe('parseStatus', () => {
 });
 
 describe('emojiForStatus', () => {
+  // Emoji selection covers defaults, user overrides, and disabled states. A null
+  // return means "remove the marker".
   test('returns active emoji for true', () => {
     const result = emojiForStatus(true);
     expect(result).not.toBeNull();
@@ -121,6 +133,8 @@ describe('emojiForStatus', () => {
 });
 
 describe('dedupeLinks', () => {
+  // Dedupe protects background.js and host APIs from duplicate checks when a page
+  // repeats the same repository URL in several anchors.
   test('groups links by hostname+pathname', () => {
     const link1 = document.createElement('a');
     link1.href = 'https://github.com/octocat/Hello-World';
@@ -150,6 +164,8 @@ describe('dedupeLinks', () => {
 });
 
 describe('runWithConcurrency', () => {
+  // Dynamic pages can contain many repository links. The pool should finish all
+  // tasks while respecting the maximum number of simultaneous checks.
   test('runs all tasks and returns results', async () => {
     const tasks = [
       () => Promise.resolve(1),
@@ -179,6 +195,8 @@ describe('runWithConcurrency', () => {
 });
 
 describe('setOrRemoveLinkMark', () => {
+  // setOrRemoveLinkMark owns the actual DOM write. These tests make sure it
+  // creates, removes, and updates a single marker instead of duplicating spans.
   test('adds emoji mark to a link', () => {
     const link = document.createElement('a');
     link.textContent = 'Hello World';

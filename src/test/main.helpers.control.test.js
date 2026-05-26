@@ -1,5 +1,8 @@
 const { isRepoUrl, getActiveConfigMetrics, isReloadNavigation } = require('../content/main.helpers');
 
+// Control tests for helper functions that content modules share. These provide
+// focused coverage for URL classification, config flattening, reload detection,
+// and background status-message handling.
 describe('isRepoUrl control tests', () => {
   test('accepts typical GitHub repo URL', () => {
     expect(isRepoUrl('https://github.com/octocat/Hello-World')).toBe(true);
@@ -19,6 +22,8 @@ describe('isRepoUrl control tests', () => {
 });
 
 describe('getActiveConfigMetrics control tests', () => {
+  // Config is stored as form-field metadata, but checks consume plain active
+  // metric values. This verifies disabled or value-less fields are ignored.
   beforeEach(() => {
     global.config = {
       emoji_active: { active: true, value: '✅' },
@@ -46,6 +51,8 @@ describe('getActiveConfigMetrics control tests', () => {
 });
 
 describe('isReloadNavigation control tests', () => {
+  // Navigation Timing APIs differ by browser age. The helper should use modern
+  // entries when available and legacy performance.navigation when needed.
   const originalPerformance = global.performance;
 
   afterEach(() => {
@@ -89,7 +96,20 @@ describe('isReloadNavigation control tests', () => {
 });
 
 describe('isRepoActive control tests', () => {
+  // isRepoActive is a thin legacy wrapper around getRepoStatus. These tests
+  // verify message shape, cache-bypass propagation, and fail-closed behavior.
   const { isRepoActive } = require('../content/main.helpers');
+  let warnSpy;
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    warnSpy = undefined;
+  });
+
+  function muteExpectedBackgroundWarning() {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    return warnSpy;
+  }
 
   test('returns status from background when ok=true', async () => {
     const sendMessage = jest.fn(() =>
@@ -125,21 +145,29 @@ describe('isRepoActive control tests', () => {
   });
 
   test('fails closed (false) when background responds with ok=false', async () => {
+    const warn = muteExpectedBackgroundWarning();
     const sendMessage = jest.fn(() =>
       Promise.resolve({ ok: false, error: 'something went wrong' })
     );
     global.ext = { sendMessage };
 
     const result = await isRepoActive('https://github.com/octocat/Hello-World');
+
     expect(result).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      '[Repo check] background error',
+      'something went wrong'
+    );
   });
 
   test('fails closed (false) when background returns no response object', async () => {
+    const warn = muteExpectedBackgroundWarning();
     const sendMessage = jest.fn(() => Promise.resolve(null));
     global.ext = { sendMessage };
 
     const result = await isRepoActive('https://github.com/octocat/Hello-World');
+
     expect(result).toBe(false);
+    expect(warn).toHaveBeenCalledWith('[Repo check] background error', undefined);
   });
-}
-);
+});

@@ -2,9 +2,14 @@
  * @jest-environment jsdom
  */
 
-// Test banner rendering and state management
+// Test banner rendering and state management.
+//
+// The banner module writes DOM directly in a content-script context. jsdom gives
+// enough browser surface to verify structure, visible state, colors, data
+// attributes, and config-driven repainting without opening a real tab.
 
-// Set up globals
+// Set up globals. The banner reads config and ext from the page context exactly
+// like it does after manifest-injected scripts load in the browser.
 global.config = {
   emoji_active: { active: true, value: '✅' },
   emoji_inactive: { active: true, value: '❌' },
@@ -17,15 +22,19 @@ global.ext = {
   sendMessage: jest.fn(),
 };
 
-// Set up __gp namespace
+// Set up __gp namespace. Detail formatting normally comes from main.helpers.js;
+// tests install a formatter only when a scenario needs that behavior.
 global.__gp = {};
 
-// Load banner module
+// Load banner module. It immediately calls ensureBannerExists once, so tests
+// reset document.body before scenarios that need a clean DOM.
 const fs = require('fs');
 const bannerSource = fs.readFileSync(require.resolve('../content/main.banner.js'), 'utf8');
 eval(bannerSource);
 
 describe('ensureBannerExists', () => {
+  // Creation tests define the required DOM contract used later by ToggleBanner
+  // and by user actions such as close, refresh, and opening config.
   beforeEach(() => {
     document.body.innerHTML = '';
   });
@@ -69,6 +78,8 @@ describe('ensureBannerExists', () => {
 });
 
 describe('ToggleBanner', () => {
+  // ToggleBanner maps status values to text, color, visibility, and stored
+  // dataset state. These are the user-facing states shown on repo pages.
   beforeEach(() => {
     document.body.innerHTML = '';
     ensureBannerExists();
@@ -149,6 +160,8 @@ describe('ToggleBanner', () => {
 });
 
 describe('__gp.refreshBanner', () => {
+  // Emoji-only config changes should repaint from stored data instead of making
+  // another status request. refreshBanner is the hook bootstrap calls for that.
   beforeEach(() => {
     document.body.innerHTML = '';
     ensureBannerExists();

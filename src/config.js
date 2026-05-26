@@ -1,4 +1,8 @@
 // ---------- Configuration ----------
+//
+// defaultConfig is the single source of truth for popup field metadata and the
+// default rule values used by the content/background flow. Stored config is
+// always sanitized through validateConfig before the popup saves or renders it.
 const CONFIG_KEY = "repoCheckerConfig";
 const defaultConfig = {
   max_repo_update_time: {
@@ -99,10 +103,15 @@ const defaultConfig = {
 };
 
 function cloneConfigShape(value) {
+  // Config entries are plain data. JSON cloning keeps reset/default operations
+  // from sharing object references with the exported defaultConfig.
   return JSON.parse(JSON.stringify(value));
 }
 
 function validateConfig(storedConfig) {
+  // Merge user-provided config over defaults and sanitize every editable value.
+  // This protects the popup from corrupted storage and lets future config keys
+  // survive extension upgrades.
   const merged = cloneConfigShape(defaultConfig);
 
   if (!storedConfig || typeof storedConfig !== "object" || Array.isArray(storedConfig)) {
@@ -118,9 +127,13 @@ function validateConfig(storedConfig) {
     const next = { ...base, ...rawField };
 
     if (next.type === "number") {
+      // Numeric thresholds must be finite and non-negative. Invalid values fall
+      // back to the default/base field value instead of being saved as NaN.
       const numeric = typeof rawField.value === "number" ? rawField.value : Number(rawField.value);
       next.value = Number.isFinite(numeric) && numeric >= 0 ? numeric : base.value;
     } else if (next.type === "text") {
+      // Emoji/text fields are short UI tokens. Clamp length so a pasted sentence
+      // cannot break the popup, banner, or link marker layout.
       const fallback = typeof base.value === "string" ? base.value : "";
       const text = typeof rawField.value === "string" ? rawField.value : fallback;
       next.value = text.slice(0, 8);
@@ -143,6 +156,8 @@ function validateConfig(storedConfig) {
 // Load config via background
 // ---------------------------
 async function loadConfig() {
+  // Popup/content callers load config through background so the same storage key
+  // is used everywhere and the response is sanitized before rendering.
   const response = await ext.sendMessage({ action: "getConfig" });
   return validateConfig(response?.config);
 }
@@ -151,12 +166,16 @@ async function loadConfig() {
 // Save config via background
 // ---------------------------
 async function saveConfig(config) {
+  // Save only a validated shape. The background worker decides whether changed
+  // rules require cache invalidation.
   const safeConfig = validateConfig(config);
   const response = await ext.sendMessage({ action: "setConfig", config: safeConfig });
   return response?.success || false;
 }
 
 async function resetConfig() {
+  // Reset returns a fresh copy to the caller so UI code can update immediately
+  // without mutating defaultConfig by reference.
   const configCopy = cloneConfigShape(defaultConfig);
   try {
     await ext.sendMessage({ action: "setConfig", config: configCopy });

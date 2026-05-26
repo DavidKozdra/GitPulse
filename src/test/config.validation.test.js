@@ -1,13 +1,19 @@
-// Test config validation logic
+// Test config validation logic.
+//
+// The popup and content scripts trust validateConfig to defend against corrupted
+// storage and older config shapes. These tests cover defaulting, type coercion,
+// bounds, and forward compatibility.
 
-// Mock ext before loading config.js
+// Mock ext before loading config.js because loadConfig/saveConfig/resetConfig
+// reference the extension API at module evaluation/runtime.
 global.ext = {
   sendMessage: jest.fn(),
   storage: { local: { get: jest.fn(), set: jest.fn() }, onChanged: { addListener: jest.fn() } },
 };
 
-// Load config.js — it defines globals via function declarations and const/var
-// We need to eval it so the functions land on globalThis
+// Load config.js. It is written for browser globals rather than CommonJS, so the
+// eval path mirrors how the extension loads it. Rewriting const/let to var makes
+// the declarations reachable in this Jest scope.
 const fs = require('fs');
 const source = fs.readFileSync(require.resolve('../config.js'), 'utf8');
 // Replace const/let with var so they become global in eval
@@ -17,6 +23,8 @@ const patchedSource = source
 eval(patchedSource);
 
 describe('validateConfig', () => {
+  // Each scenario asserts that invalid user-editable values are replaced with
+  // safe defaults while valid stored values and unknown future keys survive.
   test('returns defaultConfig when given null', () => {
     const result = validateConfig(null);
     expect(result.max_repo_update_time.value).toBe(365);

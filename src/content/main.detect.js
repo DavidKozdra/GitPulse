@@ -1,5 +1,10 @@
 // main.detect.js
+//
+// GitHub is a single-page app, so URL shape alone is not enough to know whether
+// the current document is a fully loaded repository page. These DOM probes keep
+// the banner from appearing on profile or transition states.
 function looksLikeGithubRepoUrl(url) {
+  // Fast URL-only precheck used before waiting for DOM indicators.
   try {
     const { hostname, pathname } = new URL(url);
     if (hostname !== "github.com") return false;
@@ -11,6 +16,8 @@ function looksLikeGithubRepoUrl(url) {
 }
 
 function isGithubRepoPageNow() {
+  // Prefer signals GitHub itself emits around repository pages. The selectors
+  // intentionally overlap so the check survives minor DOM changes.
   // Meta tag check
   if (document.querySelector('meta[name="octolytics-dimension-repository_nwo"]')) return true;
 
@@ -24,6 +31,8 @@ function isGithubRepoPageNow() {
 }
 
 async function waitForGithubRepoIndicators(timeout = 3000) {
+  // GitHub often changes the URL before it finishes rendering repository UI.
+  // Poll briefly so bootstrap can distinguish "still loading" from "not a repo".
   const start = Date.now();
   while (Date.now() - start < timeout) {
     if (isGithubRepoPageNow()) return true;
@@ -34,6 +43,8 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
 
 // Best-effort detection of a private GitHub repository from the DOM
 function isGithubRepoPrivate() {
+  // Private repositories can be detected locally before making a remote status
+  // request. This avoids confusing private pages with inactive public repos.
   try {
     // Look for a label with text "Private" near the repo title
     const labels = document.querySelectorAll('span.Label, span.Label--secondary, span[data-view-component="true"].Label');
@@ -56,4 +67,3 @@ if (typeof module !== 'undefined' && module.exports) {
     isGithubRepoPrivate,
   };
 }
-

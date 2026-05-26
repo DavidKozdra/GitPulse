@@ -1,7 +1,13 @@
 // main.banner.js
+//
+// Repository pages get a single banner near the top of the document. Link pages
+// use inline markers instead. The banner stores its last rendered status in
+// data attributes so config-only changes can repaint it without another fetch.
 
 ensureBannerExists()
 function ensureBannerExists() {
+  // Build the banner entirely from script so the content script does not depend
+  // on host-page markup or a pre-existing extension container.
   let banner = document.getElementById("my-banner");
   if (banner) return banner; // already created
 
@@ -92,6 +98,8 @@ function ensureBannerExists() {
   });
 
   refreshBtn.onclick = async () => {
+    // A manual refresh bypasses cache through bootstrap's refresh function. The
+    // temporary disabled state prevents duplicate refresh requests.
     if (typeof window.gitpulseRefreshCurrentRepo !== "function") return;
     refreshBtn.disabled = true;
     refreshBtn.style.opacity = "0.55";
@@ -130,6 +138,8 @@ function ensureBannerExists() {
 }
 
 function ToggleBanner(status, Toggle, details = {}, meta = {}) {
+  // Render all possible status states in one place so the banner, dataset state,
+  // details line, and config link text cannot drift apart.
   const isRateLimited = status === "rate_limited";
   const isPrivate = status === "private";
   const isUnsupported = status === "unsupported";
@@ -163,6 +173,8 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
   let mainMessage = "";
   let bgColor = "";
   const pick = (key, fallback) => {
+    // Emoji config is optional per state. If disabled, the status text remains
+    // visible while the decorative prefix is omitted.
     const field = config?.[key];
     if (field && field.active === false) return null;
     const raw = typeof field?.value === "string" ? field.value.trim() : "";
@@ -220,6 +232,8 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
 globalThis.__gp = globalThis.__gp || {};
 window.__gp = globalThis.__gp;
 window.gitpulseRefreshBanner = () => {
+  // Repaint from stored data after emoji config changes. This avoids making a
+  // network request when only the presentation changed.
   const banner = document.getElementById("my-banner");
   if (!banner) return;
   const raw = banner.dataset?.gitpulseStatus || "";

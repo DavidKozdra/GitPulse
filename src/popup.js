@@ -1,4 +1,7 @@
 document.addEventListener("DOMContentLoaded", async () => {
+  // The popup is rebuilt from stored config every time it opens. It does not
+  // maintain long-lived state, so each open starts by loading PAT, config, and
+  // emoji recents from extension storage.
   const formsContainer = document.querySelector(".forms-container");
   if (!formsContainer) return;
 
@@ -12,6 +15,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     ext.storage.local.set({ githubPAT: pat }).then(() => true);
 
   const loadConfig = async () => {
+    // Stored config may be from an older extension version. Merge onto defaults
+    // so newly added settings appear without forcing a full reset.
     const { repoCheckerConfig } = await ext.storage.local.get(["repoCheckerConfig"]);
     const mergedConfig = { ...defaultConfig };
     if (repoCheckerConfig) {
@@ -47,6 +52,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const recordEmojiRecent = (char) => {
+    // The emoji picker keeps a small most-recently-used list. Persistence is
+    // best-effort because picker usability should not depend on storage writes.
     if (!char) return;
     recentEmojis = [char, ...recentEmojis.filter(c => c !== char)].slice(0, 24);
     try {
@@ -67,6 +74,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     .sort((a, b) => (config[a].order ?? 999) - (config[b].order ?? 999));
 
   sortedKeys.forEach(key => {
+    // Each config entry renders as: label, value input, optional emoji picker,
+    // and an active toggle. The config object is updated in memory and then
+    // serialized when the user clicks Save.
     const field = config[key];
 
     const formGroup = document.createElement("div");
@@ -125,6 +135,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Emoji picker for emoji_* fields
     if (key.startsWith("emoji_")) {
+      // Emoji fields get a searchable picker in addition to the text input.
+      // The input remains the saved source of truth so keyboard entry still
+      // works even if the picker data is unavailable.
       const trigger = document.createElement("button");
       trigger.type = "button";
       trigger.className = "emoji-btn emoji-trigger";
@@ -179,6 +192,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       }
       function renderGrid(q) {
+        // Search returns curated emoji first, then generated Unicode pictographs.
+        // With no query, recently used emoji are lifted to the top.
         grid.innerHTML = "";
         const hasSearch = window.EmojiData && typeof window.EmojiData.search === "function";
         const query = (q || "").trim();
@@ -247,6 +262,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Helper to update UI inputs and toggles
   // ---------------------------
   const updateUI = (configToApply) => {
+    // After reset, update the existing popup controls instead of rebuilding the
+    // DOM. This keeps any event listeners attached during initial rendering.
     sortedKeys.forEach(key => {
       const field = configToApply[key];
       const input = document.getElementById(key);
@@ -264,6 +281,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Save button
   // ---------------------------
   document.getElementById("saveBtn").addEventListener("click", async () => {
+    // Reconstruct the persisted config from the current controls. Numeric fields
+    // fall back to their previous value if the input cannot be parsed.
     const newConfig = {};
     sortedKeys.forEach(key => {
       const input = document.getElementById(key);
@@ -289,6 +308,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Reset button
   // ---------------------------
   document.getElementById("clearBtn").addEventListener("click", async () => {
+    // Reset both rules and PAT-related cached results. Clearing cache ensures the
+    // next page check reflects default thresholds and auth state immediately.
     const confirmReset = confirm("Are you sure you want to reset your configuration to the default settings?");
     if (!confirmReset) return;
 
@@ -301,4 +322,3 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateUI(defaultConfigCopy);                   // update form inputs
   });
 });
-

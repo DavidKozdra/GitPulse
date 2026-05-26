@@ -1,11 +1,18 @@
 // main.links.js
-// Per-page in-memory cache to avoid duplicate lookups during the same session
+//
+// This module scans non-repository pages for links that point at supported repo
+// or package hosts, asks the background worker for each unique status, and
+// injects a small emoji marker into each matching link.
+//
+// Per-page in-memory cache to avoid duplicate lookups during the same session.
 const __linkStatusCache = new Map(); // key -> status
 
 const LINK_STATUS_ATTR = "data-gitpulse-status";
 const LINK_MARK_SELECTOR = 'span.repo-checker-mark[data-gitpulse-mark="1"]';
 
 function normalizeStatus(status) {
+  // DOM attributes can only store strings. Normalize the mixed status union
+  // (boolean plus string states) before persisting it on a link element.
   if (status === true) return "true";
   if (status === false) return "false";
   if (status === "private" || status === "rate_limited" || status === "unsupported") return status;
@@ -13,6 +20,8 @@ function normalizeStatus(status) {
 }
 
 function parseStatus(normalized) {
+  // Reverse normalizeStatus when config changes require re-rendering markers
+  // without making another background/API request.
   if (normalized === "true") return true;
   if (normalized === "false") return false;
   if (normalized === "private" || normalized === "rate_limited" || normalized === "unsupported") return normalized;
@@ -20,6 +29,8 @@ function parseStatus(normalized) {
 }
 
 function emojiForStatus(status) {
+  // Emoji values are user-configurable and independently disable-able. Returning
+  // null tells the renderer to remove any existing marker for that status.
   const pick = (key, fallback) => {
     const field = config?.[key];
     if (field && field.active === false) return null;
@@ -56,6 +67,8 @@ function emojiForStatus(status) {
 }
 
 function findOrAdoptLegacyMark(link) {
+  // Older GitPulse versions inserted a plain leading span. Adopt that element
+  // when it looks safe so upgrades do not duplicate markers in already-open tabs.
   const existing = link.querySelector(LINK_MARK_SELECTOR);
   if (existing) return existing;
 
@@ -80,6 +93,8 @@ function findOrAdoptLegacyMark(link) {
 }
 
 function readStoredDetails(link) {
+  // Details are stored as JSON for local re-rendering. Malformed data should not
+  // break page annotation, so failures fall back to an empty details object.
   try {
     const raw = link.getAttribute("data-gitpulse-details");
     return raw ? JSON.parse(raw) : {};
@@ -89,6 +104,9 @@ function readStoredDetails(link) {
 }
 
 function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
+  // This is the only function that mutates a link. It records status/details for
+  // future refreshes, creates or updates the marker span, and removes it when
+  // the relevant emoji is disabled.
   const normalized = normalizeStatus(status);
   if (normalized) {
     link.setAttribute(LINK_STATUS_ATTR, normalized);
@@ -131,7 +149,9 @@ function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
   mark.title = detailText ? `${emoji.title}: ${detailText}` : emoji.title;
 }
 
-// Simple concurrency pool for promises
+// Simple concurrency pool for promises. Pages such as search results can expose
+// many repo links at once, so this prevents a burst of background messages and
+// host API requests from running at unlimited parallelism.
 async function runWithConcurrency(tasks, concurrency = 6) {
   const results = [];
   const pool = [];
@@ -147,6 +167,9 @@ async function runWithConcurrency(tasks, concurrency = 6) {
 }
 
 function dedupeLinks(links) {
+  // Many pages repeat the same repo URL in title, avatar, metadata, and action
+  // links. Dedupe by host+path so each unique repo is checked once, then apply
+  // the result to every matching anchor.
   const map = new Map(); // key -> array of elements
   for (const el of links) {
     const href = el.href;
@@ -165,6 +188,8 @@ function dedupeLinks(links) {
 }
 
 async function processUniqueUrls(map) {
+  // Convert the deduped map into bounded async tasks. Cached per-page results
+  // are reapplied immediately; uncached URLs go through the background worker.
   if(!map) {
     console.warn("link process error")
     return
@@ -197,6 +222,8 @@ async function processUniqueUrls(map) {
 }
 
 function annotateLink(link, result) {
+  // Support both the modern rich result object and the older raw status value so
+  // fallback paths can still annotate links.
   const status = isPlainStatusResult(result) ? result.status : result;
   const details = isPlainStatusResult(result) ? result.details || {} : {};
   const meta = isPlainStatusResult(result) ? { fromCache: result.fromCache } : {};
@@ -208,6 +235,8 @@ function isPlainStatusResult(value) {
 }
 
 function refreshAllLinkMarks() {
+  // Config changes that only affect emoji should not refetch status. Re-render
+  // previously annotated links from their stored attributes instead.
   // Re-apply emojis for every previously checked link, without re-fetching.
   const links = Array.from(document.querySelectorAll(`a[${LINK_STATUS_ATTR}]`));
 
@@ -238,6 +267,9 @@ let __debounceTimer = null;
 const DEBOUNCE_MS = 250;
 
 async function markRepoLinks() {
+  // Debounce because dynamic pages often batch DOM mutations. The delayed scan
+  // catches document links plus same-origin iframe links without repeatedly
+  // walking the DOM for each individual mutation.
   if (__debounceTimer) clearTimeout(__debounceTimer);
   __debounceTimer = setTimeout(async () => {
     __debounceTimer = null;

@@ -1,7 +1,12 @@
 const { isRepoUrl } = require('../content/main.helpers');
 
+// Comprehensive URL classification tests. The content script uses isRepoUrl to
+// decide whether to show a repo-page banner or annotate a link, so false
+// positives are visible to users and false negatives skip useful checks.
 describe('isRepoUrl comprehensive tests', () => {
   describe('GitHub', () => {
+    // GitHub gets extra reserved-path coverage because many non-repository pages
+    // still look like github.com/<word>/<subpath>.
     test('recognizes standard repo URL', () => {
       expect(isRepoUrl('https://github.com/octocat/Hello-World')).toBe(true);
     });
@@ -59,6 +64,8 @@ describe('isRepoUrl comprehensive tests', () => {
   });
 
   describe('Package registries', () => {
+    // Package registry pages are treated as repository-like targets even though
+    // their URL structures differ from owner/repo source hosts.
     test('npm: recognizes package URL', () => {
       expect(isRepoUrl('https://www.npmjs.com/package/express')).toBe(true);
     });
@@ -85,6 +92,8 @@ describe('isRepoUrl comprehensive tests', () => {
   });
 
   describe('Edge cases', () => {
+    // Invalid input should fail closed. Link scanning runs across arbitrary page
+    // anchors, so it must tolerate malformed, missing, and unknown URLs.
     test('returns false for invalid URLs', () => {
       expect(isRepoUrl('not a url')).toBe(false);
       expect(isRepoUrl('')).toBe(false);

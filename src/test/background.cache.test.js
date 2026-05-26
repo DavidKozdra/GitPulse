@@ -1,8 +1,15 @@
-// Test cache logic and utility functions from background.js
+// Test cache logic and utility functions from background.js.
+//
+// background.js is an MV3 service worker, not a CommonJS module. These tests
+// evaluate the source in Jest with mocked Chrome APIs so we can exercise the
+// real cache, message-handler, URL routing, and validation functions without a
+// browser extension runtime.
 
 const fs = require('fs');
 
-// Mock chrome APIs with working storage
+// Mock chrome APIs with working storage. The storage object intentionally acts
+// like chrome.storage.local: get/set/remove are callback-based, support null
+// reads for "all keys", and preserve non-cache keys during clearCache tests.
 const storage = {};
 const mockChrome = {
   runtime: {
@@ -40,7 +47,9 @@ const mockChrome = {
 global.chrome = mockChrome;
 global.fetch = jest.fn();
 
-// Load background.js — replace const/let with var so functions become global
+// Load background.js. Replacing top-level const/let with var makes declarations
+// visible to eval's surrounding scope, which is what lets the tests call helper
+// functions such as readCache and fetchRepoStatusByUrl directly.
 const bgSource = fs.readFileSync(require.resolve('../background.js'), 'utf8');
 const patchedSource = bgSource
   .replace(/^const /gm, 'var ')
@@ -48,6 +57,9 @@ const patchedSource = bgSource
 eval(patchedSource);
 
 describe('cache helpers', () => {
+  // These tests define the cache contract: versioned entries, normal TTL,
+  // shorter rate-limit TTL, and cache-only removal without touching unrelated
+  // extension storage.
   beforeEach(() => {
     Object.keys(storage).forEach(k => delete storage[k]);
   });
@@ -124,6 +136,8 @@ describe('cache helpers', () => {
 });
 
 describe('smartClearCache', () => {
+  // smartClearCache protects users from stale status results after rule changes
+  // while keeping the cache warm for emoji-only presentation changes.
   beforeEach(() => {
     Object.keys(storage).forEach(k => delete storage[k]);
   });
@@ -153,6 +167,9 @@ describe('smartClearCache', () => {
 });
 
 describe('fetchRepoStatus cache behavior', () => {
+  // The message handler is the real entrypoint used by content scripts. These
+  // tests verify cache hits, forced refresh, and a few representative host
+  // adapters through handleMessage rather than calling adapters in isolation.
   beforeEach(() => {
     Object.keys(storage).forEach(k => delete storage[k]);
     fetch.mockReset();
@@ -274,6 +291,9 @@ describe('fetchRepoStatus cache behavior', () => {
 });
 
 describe('withinDays', () => {
+  // withinDays is intentionally permissive for absent dates and disabled rules;
+  // host adapters only fail a rule when a finite threshold and concrete old date
+  // are both present.
   test('returns true for recent dates', () => {
     const recent = new Date().toISOString();
     expect(withinDays(recent, 30)).toBe(true);
@@ -294,6 +314,8 @@ describe('withinDays', () => {
 });
 
 describe('validateSegment', () => {
+  // Segment validation is security-sensitive because accepted values are later
+  // interpolated into remote API paths.
   test('accepts valid owner/repo names', () => {
     expect(() => validateSegment('octocat')).not.toThrow();
     expect(() => validateSegment('Hello-World')).not.toThrow();

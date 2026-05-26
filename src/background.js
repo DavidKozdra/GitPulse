@@ -1,20 +1,30 @@
 console.log("GitPulse SW started", chrome.runtime?.id);
 // background.js (MV3 service worker)
+//
+// This service worker is the extension's privileged backend. Content scripts
+// run on arbitrary web pages, so they ask this file to read extension storage,
+// call remote APIs, and maintain the cache. Keeping those responsibilities here
+// also avoids exposing the GitHub PAT to page scripts.
 
 // ---------------------------
 // Constants & helpers
 // ---------------------------
 const CACHE_PREFIX = "repoCache:";
 const CACHE_SCHEMA_VERSION = 3;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24;   // 24h for normal entries
-const RATE_TTL_MS = 1000 * 60 * 60 * 2;    // 2h for rate-limited entries
+// Normal status entries live for one day. That keeps browsing fast while still
+// allowing repository activity to become visible without a manual cache clear.
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
+// Rate-limit responses intentionally expire faster. A user can add a PAT or the
+// host can reset its quota, and we do not want stale throttling to linger all day.
+const RATE_TTL_MS = 1000 * 60 * 60 * 2;
 const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("GitPulse Installed");
 });
 
-// Storage helpers
+// Storage helpers wrap Chrome's callback APIs into Promises so the rest of the
+// service worker can use a straight async/await flow.
 const getLocal = (keys) =>
   new Promise((resolve) => chrome.storage.local.get(keys, resolve));
 const setLocal = (obj) =>
@@ -24,6 +34,9 @@ const removeLocal = (keys) =>
 
 // Small utils
 const now = () => Date.now();
+// A missing date is treated as passing. Some registries do not expose every
+// timestamp we prefer, so callers opt into failure only when they provide a
+// concrete timestamp that is older than the configured threshold.
 const withinDays = (dateStr, maxDays) => {
   if (!dateStr || !Number.isFinite(maxDays)) return true;
   const last = new Date(dateStr);
@@ -36,6 +49,8 @@ const isPlainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 const DEFAULT_MAX_ACTIVITY_DAYS = 365;
 
 function validateSegment(segment) {
+  // URL path pieces are interpolated into remote API URLs. Validate them before
+  // building a request so malformed or traversal-like input is rejected early.
   if (typeof segment !== "string") throw new Error("Invalid path segment");
   const value = segment.trim();
   if (!value || value === "." || value === ".." || value.includes("/") || value.includes("\\") || value.includes("..")) {
@@ -48,6 +63,8 @@ function validateSegment(segment) {
 }
 
 function validatePackageName(name) {
+  // Package registries allow scoped names such as @scope/name, but still should
+  // not receive slashes, traversal segments, or backslashes beyond that format.
   if (typeof name !== "string") throw new Error("Invalid package name");
   const value = name.trim();
   if (!value || value.includes("\\") || value.includes("..")) {
@@ -66,6 +83,8 @@ function maxActivityDays(rules) {
 }
 
 function activityStatus({ host, updatedAt, pushedAt, archived = false, details = {} }, rules) {
+  // All host adapters collapse their native response into this shared shape.
+  // The UI only needs a stable status plus details for the tooltip/banner.
   const activityAt = pushedAt || updatedAt;
   const pushOk = !!activityAt && withinDays(activityAt, maxActivityDays(rules));
   const isArchived = !!archived;
@@ -96,6 +115,8 @@ function unsupportedStatus(host, reason = "No checker is available for this host
 }
 
 async function fetchJson(url, options = {}) {
+  // Registry APIs use different status codes for throttling. Normalize those
+  // into rateLimited so callers can cache and display that state consistently.
   const response = Object.keys(options).length ? await fetch(url, options) : await fetch(url);
   if (response.status === 429) return { response, data: null, rateLimited: true };
   if (response.status === 403 && /api\.github\.com|crates\.io|hub\.docker\.com/.test(url)) {
@@ -106,6 +127,8 @@ async function fetchJson(url, options = {}) {
 }
 
 function maxIsoDate(values) {
+  // Several package APIs return one timestamp per release/file. Keep the newest
+  // valid ISO-ish value and ignore absent or malformed values.
   let best = null;
   let bestTime = -Infinity;
   values.forEach((value) => {
@@ -120,11 +143,16 @@ function maxIsoDate(values) {
 }
 
 function splitBeforeGitLabMarker(parts) {
+  // GitLab repository subpages can contain marker segments such as /-/issues.
+  // Project paths before that marker may themselves be nested groups.
   const markerIndex = parts.indexOf("-");
   return markerIndex === -1 ? parts : parts.slice(0, markerIndex);
 }
 
 async function smartClearCache(oldConfig, newConfig) {
+  // Emoji changes only affect rendering, not repository status decisions. Cache
+  // can stay warm for those updates, but any rule value/active change requires a
+  // full clear so old status results are not evaluated with stale thresholds.
   if (!isPlainObject(oldConfig) || !isPlainObject(newConfig)) {
     await clearCache();
     return { success: true, cleared: true };
@@ -156,7 +184,8 @@ async function smartClearCache(oldConfig, newConfig) {
   return { success: true, cleared: true, changedRuleKeys };
 }
 
-// Merge active, enabled config fields into a flat rules object
+// Merge active, enabled config fields into a flat rules object. Fetchers consume
+// this compact rules shape instead of the popup's richer form-field metadata.
 async function loadActiveRules() {
   const { [CONFIG_KEY]: cfg } = await getLocal([CONFIG_KEY]);
   if (!cfg) return {};
@@ -165,7 +194,8 @@ async function loadActiveRules() {
     .reduce((acc, [k, f]) => { acc[k] = f.value; return acc; }, {});
 }
 
-// Cache helpers
+// Cache helpers store host+path entries under a versioned schema. Bumping
+// CACHE_SCHEMA_VERSION makes older entries invisible without migrating them.
 async function readCache(key) {
   const full = CACHE_PREFIX + key;
   const item = (await getLocal([full]))[full];
@@ -200,6 +230,9 @@ async function getPAT() {
 // ---------------------------
 async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 
+  // Direct GitHub API calls require a user-provided token. The token check is
+  // intentionally simple: it catches obvious mistakes before issuing requests,
+  // while GitHub remains the source of truth for authorization.
   if(!pat || pat.length === 0){
     throw new Error("No PAT provided");
   }
@@ -212,7 +245,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     ...(pat ? { Authorization: `token ${pat}` } : {}),
   };
 
-  // 1) repo metadata
+  // 1) Repo metadata supplies archive state plus the baseline activity dates.
   const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
   if (repoRes.status === 403) return { status: "rate_limited" };
   if (repoRes.status === 404 || repoRes.status === 401) {
@@ -234,7 +267,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     }, rules);
   }
 
-  // 2) Open PR threshold (use search API for total_count)
+  // 2) Open PR threshold. The search API exposes total_count without needing to
+  // page through every open PR, which keeps checks cheap.
   let openPrsOk = true;
   let openPrCount = null;
   if (Number.isFinite(rules.open_prs_max)) {
@@ -249,7 +283,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     openPrsOk = openPrCount <= rules.open_prs_max;
   }
 
-  // 3) Last closed PR age
+  // 3) Last closed PR age. A repo can be active even with low commit volume if
+  // maintainers are still closing or merging PRs.
   let lastClosedPrOk = true;
   let lastClosedPrAt = null;
   if (Number.isFinite(rules.last_closed_pr_max_days)) {
@@ -264,13 +299,15 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     lastClosedPrOk = withinDays(lastClosedPrAt, rules.last_closed_pr_max_days);
   }
 
-  // 4) Core push recency
+  // 4) Core push recency. This is the default rule and remains the main signal
+  // when optional rules are not enabled.
   const pushOk = withinDays(
     repoData.pushed_at,
     Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
   );
 
-  // 5) Issue activity recency
+  // 5) Issue activity recency. This optional rule catches repos where issues are
+  // still being triaged even if pushes are infrequent.
   let issuesActivityOk = true;
   let lastIssueUpdatedAt = null;
   if (Number.isFinite(rules.max_issues_update_time)) {
@@ -285,7 +322,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     issuesActivityOk = withinDays(lastIssueUpdatedAt, rules.max_issues_update_time);
   }
 
-  // 6) Last release recency
+  // 6) Last release recency. Missing releases fail this optional rule because a
+  // configured release threshold means the user explicitly cares about releases.
   let releaseOk = true;
   let lastReleaseAt = null;
   if (Number.isFinite(rules.max_days_since_last_release)) {
@@ -304,7 +342,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     releaseOk = withinDays(lastReleaseAt, rules.max_days_since_last_release);
   }
 
-  // 7) Oldest open issue age
+  // 7) Oldest open issue age. A stale oldest issue is a weak maintenance signal,
+  // so it is only evaluated when the user enables that threshold.
   let openIssueAgeOk = true;
   let oldestOpenIssueCreatedAt = null;
   if (Number.isFinite(rules.max_open_issue_age)) {
@@ -346,6 +385,8 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 // Minimal Codeberg status fetcher, mirroring core GitHub logic where fields exist.
 // Uses the public Gitea-compatible API: https://codeberg.org/api/v1/repos/{owner}/{repo}
 async function fetchCodebergRepoStatus({ owner, repo }, rules) {
+  // Codeberg exposes a Gitea-compatible repo endpoint. It lacks every GitHub
+  // detail we check above, so this adapter returns the common activity fields.
   const repoRes = await fetch(`https://codeberg.org/api/v1/repos/${owner}/${repo}`);
   if (repoRes.status === 404 || repoRes.status === 401) {
     return { status: "private" };
@@ -374,6 +415,8 @@ async function fetchCodebergRepoStatus({ owner, repo }, rules) {
 }
 
 async function fetchGitlabRepoStatus({ projectPath }, rules) {
+  // GitLab project IDs are URL-encoded full paths such as group/subgroup/repo.
+  // last_activity_at is the closest equivalent to GitHub pushed_at.
   const url = `https://gitlab.com/api/v4/projects/${encodeURIComponent(projectPath)}`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("gitlab.com");
@@ -391,6 +434,8 @@ async function fetchGitlabRepoStatus({ projectPath }, rules) {
 }
 
 async function fetchBitbucketRepoStatus({ workspace, repo }, rules) {
+  // Bitbucket reports private repositories explicitly when visible through the
+  // unauthenticated API; inaccessible repos still appear as auth/not-found codes.
   const url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("bitbucket.org");
@@ -408,6 +453,8 @@ async function fetchBitbucketRepoStatus({ workspace, repo }, rules) {
 }
 
 async function fetchNpmPackageStatus({ packageName }, rules) {
+  // npm package pages are treated like repositories for browsing purposes. The
+  // registry's modified time is the activity timestamp used by GitPulse.
   const url = `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("npmjs.com");
@@ -425,6 +472,8 @@ async function fetchNpmPackageStatus({ packageName }, rules) {
 }
 
 async function fetchDockerHubRepoStatus({ namespace, repo }, rules) {
+  // Docker Hub's last_updated field is preferred, with registration dates kept
+  // as a fallback so old-but-valid images still produce a deterministic status.
   const url = `https://hub.docker.com/v2/repositories/${namespace}/${repo}/`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("hub.docker.com");
@@ -447,6 +496,8 @@ async function fetchDockerHubRepoStatus({ namespace, repo }, rules) {
 }
 
 async function fetchPypiProjectStatus({ project }, rules) {
+  // PyPI exposes activity per release file. We scan those upload timestamps and
+  // use the newest one as the package's last activity date.
   const url = `https://pypi.org/pypi/${encodeURIComponent(project)}/json`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("pypi.org");
@@ -469,6 +520,8 @@ async function fetchPypiProjectStatus({ project }, rules) {
 }
 
 async function fetchCratesStatus({ crate }, rules) {
+  // crates.io has a compact crate payload with updated_at and max_version, which
+  // maps directly into GitPulse's shared activity/details shape.
   const url = `https://crates.io/api/v1/crates/${encodeURIComponent(crate)}`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("crates.io");
@@ -485,6 +538,8 @@ async function fetchCratesStatus({ crate }, rules) {
 }
 
 async function fetchPackagistStatus({ vendor, packageName }, rules) {
+  // Packagist returns many versions under the full vendor/package key. The most
+  // recent version timestamp is the useful maintenance signal.
   const fullName = `${vendor}/${packageName}`;
   const url = `https://repo.packagist.org/p2/${vendor}/${packageName}.json`;
   const { response, data, rateLimited } = await fetchJson(url);
@@ -505,6 +560,8 @@ async function fetchPackagistStatus({ vendor, packageName }, rules) {
 }
 
 function newestDatetimeFromHtml(html) {
+  // SourceHut does not expose an unauthenticated JSON endpoint for this check,
+  // so we parse the page's datetime attributes as a best-effort signal.
   const matches = [...String(html).matchAll(/datetime=["']([^"']+)["']/gi)];
   return maxIsoDate(matches.map((match) => match[1]));
 }
@@ -530,6 +587,8 @@ async function fetchSourcehutRepoStatus({ owner, repo }, rules) {
 }
 
 async function fetchLaunchpadStatus({ project }, rules) {
+  // Launchpad's API has a project-level activity date and active flag, which is
+  // enough for the shared archive/activity decision.
   const url = `https://api.launchpad.net/1.0/${project}`;
   const { response, data, rateLimited } = await fetchJson(url);
   if (rateLimited) return rateLimitedStatus("launchpad.net");
@@ -556,6 +615,9 @@ const SUPABASE_ANON_KEY =
 // Call the Supabase edge function when the user has no PAT.
 // It returns the same shape as fetchGithubRepoStatus: { status, details: {...} }
 async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
+  // When there is no user PAT, defer GitHub checks to the edge function. It
+  // returns the same status shape as the direct GitHub adapter so callers do not
+  // need a special case.
   const resp = await fetch(SUPABASE_GITHUB_STATUS_URL, {
     method: "POST",
     headers: {
@@ -580,6 +642,8 @@ async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
 // Add other ecosystems similarly (GitLab, Bitbucket, npm, etc.)
 
 async function fetchRepoStatusByUrl(rawUrl, rules) {
+  // Route a browser URL to the adapter that understands that host's URL shape
+  // and public API. Every branch validates path segments before interpolation.
   const { hostname, pathname } = new URL(rawUrl);
   const parts = pathname.split("/").filter(Boolean);
   const pat = await getPAT(); // existing function that returns the user's PAT or null
@@ -681,6 +745,9 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
 // Unified message handler
 // ---------------------------
 async function handleMessage(message, sender, sendResponse) {
+  // This is the single message boundary for popup/content requests. Each case
+  // sends exactly one response and returns, while the listener below keeps the
+  // message channel open for async work.
   try {
     switch (message?.action) {
       case "ping": {

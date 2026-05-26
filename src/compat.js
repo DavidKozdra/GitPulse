@@ -2,6 +2,11 @@
 // - Promise-safe wrappers for runtime.sendMessage and storage
 // - lastError-aware for chrome callbacks
 // - normalized onMessage.addListener/removeListener with Promise support
+//
+// The rest of the extension talks to `window.ext` instead of branching on
+// `chrome` versus `browser`. Firefox already exposes Promise APIs, while Chrome
+// still uses callbacks for several APIs; this shim gives both runtimes the same
+// async interface.
 (function () {
   const root = typeof globalThis !== 'undefined' ? globalThis : window;
   const getBrowser = () => root.browser;
@@ -9,6 +14,8 @@
   const isFn = (value) => typeof value === 'function';
 
   function withChromeCallback(fn, runtime) {
+    // Convert Chrome's callback style into a Promise and surface lastError as a
+    // rejection. Reading lastError also avoids noisy unchecked-lastError logs.
     return new Promise((resolve, reject) => {
       try {
         fn((res) => {
@@ -23,6 +30,9 @@
   }
 
   async function sendMessage(message, { timeoutMs } = {}) {
+    // browser.runtime.sendMessage already returns a Promise. Chrome needs the
+    // callback wrapper above. timeoutMs is optional and used only by callers that
+    // want to fail fast instead of waiting indefinitely.
     const browserRuntime = getBrowser()?.runtime;
     if (isFn(browserRuntime?.sendMessage)) {
       if (timeoutMs) {
@@ -47,6 +57,8 @@
   }
 
   function storageGet(keys) {
+    // Storage methods are normalized independently from runtime availability so
+    // mixed test/browser environments can fall back piece by piece.
     const browserLocal = getBrowser()?.storage?.local;
     if (isFn(browserLocal?.get)) return browserLocal.get(keys);
 
@@ -92,6 +104,8 @@
 
   // Normalize onMessage listeners. Returns an unsubscribe function.
   function addOnMessageListener(handler) {
+    // Firefox supports Promise-returning listeners directly. Chrome requires
+    // returning true when the response will arrive asynchronously.
     const browserOnMessage = getBrowser()?.runtime?.onMessage;
     if (isFn(browserOnMessage?.addListener)) {
       browserOnMessage.addListener(handler);
@@ -127,6 +141,8 @@
   // storage.onChanged shim
   const onChanged = {
     addListener(fn) {
+      // Return an unsubscribe function even though the native APIs do not. This
+      // makes content-script cleanup and tests deterministic.
       const handler = (changes, area) => fn(changes, area);
       const browserOnChanged = getBrowser()?.storage?.onChanged;
       if (isFn(browserOnChanged?.addListener)) {

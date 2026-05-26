@@ -1,5 +1,9 @@
 // main.helpers.js
-// Shared helpers for the content script (extracted from main.js)
+// Shared helpers for the content script (extracted from main.js).
+//
+// These helpers intentionally avoid direct Chrome APIs except through `ext`.
+// That keeps them testable in Jest and keeps browser differences isolated in
+// compat.js.
 var rate_limited = false;
 
 const STATUS_LABELS = {
@@ -11,6 +15,9 @@ const STATUS_LABELS = {
 };
 
 function isReloadNavigation() {
+  // A hard reload is a strong signal that the user wants fresh data for the
+  // current page. Prefer the modern Navigation Timing entry, but keep the legacy
+  // performance.navigation fallback for older browser engines.
   try {
     const perf = typeof performance !== "undefined" ? performance : null;
     if (!perf) return false;
@@ -28,6 +35,8 @@ function isReloadNavigation() {
 }
 
 function formatRelativeDate(dateStr) {
+  // Tooltips and banners should stay compact, so details use coarse relative
+  // wording instead of full timestamps. Invalid dates are omitted from output.
   if (!dateStr) return "";
   const date = new Date(dateStr);
   const time = date.getTime();
@@ -50,6 +59,9 @@ function formatRelativeDate(dateStr) {
 }
 
 function formatRepoStatusDetails(status, details = {}, meta = {}) {
+  // Convert the background service worker's structured details into a short
+  // human-readable sentence. The output is deliberately bounded so a long set of
+  // failed checks cannot make link tooltips noisy.
   if (status === "unsupported") {
     const host = details?.host || "this host";
     return `GitPulse does not check ${host} yet.`;
@@ -100,12 +112,17 @@ function formatRepoStatusDetails(status, details = {}, meta = {}) {
 }
 
 function statusLabel(status) {
+  // Accessibility labels use a stable vocabulary that mirrors the status values
+  // returned by the background script.
   if (status === true) return STATUS_LABELS.true;
   if (status === false) return STATUS_LABELS.false;
   return STATUS_LABELS[status] || "Repository status";
 }
 
 async function getRepoStatus(url, options = {}) {
+  // Content scripts cannot safely call every remote API themselves, and they
+  // should never read the PAT. Delegate the check to background.js and normalize
+  // failed responses into a false status with an error detail.
   const message = { action: "fetchRepoStatus", url };
   if (options.bypassCache === true) message.forceRefresh = true;
 
@@ -126,6 +143,8 @@ async function getRepoStatus(url, options = {}) {
 }
 
 async function isRepoActive(url, options = {}) {
+  // Legacy convenience wrapper. Newer UI paths use getRepoStatus so they can
+  // render details, but some tests and fallback code only need the status value.
   const result = await getRepoStatus(url, options);
   return result.status; // true | false | "rate_limited" | "private" | "unsupported"
 }
@@ -148,14 +167,21 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 async function getCacheFromBackground(key) {
+  // Kept for older call sites/tests that address cache directly through the
+  // background message API.
   return ext.sendMessage({ action: "getCache", key });
 }
 
 async function setCacheInBackground(key, value) {
+  // Kept for older call sites/tests that seed cache through the background
+  // message API.
   return ext.sendMessage({ action: "setCache", key, value });
 }
 
 function getActiveConfigMetrics() {
+  // Flatten active config fields into a simple key/value object. Background.js
+  // performs the authoritative read, but this is useful for content-side tests
+  // and debugging.
   return Object.entries(config)
     .filter(([key, field]) => field.active && field.value !== undefined)
     .reduce((acc, [key, field]) => {
@@ -165,6 +191,9 @@ function getActiveConfigMetrics() {
 }
 
 function isRepoUrl(url) {
+  // GitPulse annotates links for repository-like pages and selected package
+  // registries. Host-specific rules are conservative so profile, settings, and
+  // discovery pages do not receive status markers.
   try {
     const { hostname, pathname } = new URL(url);
     const parts = pathname.split("/").filter(Boolean);

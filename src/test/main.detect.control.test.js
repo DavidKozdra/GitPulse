@@ -1,6 +1,9 @@
 const { looksLikeGithubRepoUrl, isGithubRepoPageNow, isGithubRepoPrivate } =
   require('../content/main.detect');
 
+// Detection control tests for GitHub's SPA pages. The bootstrap flow combines
+// URL shape with DOM indicators so GitPulse does not show a repository banner
+// before GitHub has actually rendered repository UI.
 describe('looksLikeGithubRepoUrl control tests', () => {
   test('detects GitHub repo URLs with owner and repo', () => {
     expect(looksLikeGithubRepoUrl('https://github.com/octocat/Hello-World')).toBe(true);
@@ -16,6 +19,8 @@ describe('looksLikeGithubRepoUrl control tests', () => {
 });
 
 describe('isGithubRepoPageNow control tests', () => {
+  // DOM indicators are redundant on purpose; if GitHub changes one selector, the
+  // others can still identify a loaded repository page.
   afterEach(() => {
     document.body.innerHTML = '';
   });
@@ -38,6 +43,8 @@ describe('isGithubRepoPageNow control tests', () => {
 });
 
 describe('isGithubRepoPrivate control tests', () => {
+  // Private repo detection lets the content script show a local private status
+  // instead of making a remote request that would likely fail or be ambiguous.
   afterEach(() => {
     document.body.innerHTML = '';
   });
@@ -58,4 +65,3 @@ describe('isGithubRepoPrivate control tests', () => {
     expect(isGithubRepoPrivate()).toBe(false);
   });
 });
-
