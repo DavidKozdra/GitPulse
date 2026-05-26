@@ -7,7 +7,7 @@ const CONFIG_KEY = "repoCheckerConfig";
 const defaultConfig = {
   max_repo_update_time: {
     name: "Max days since last commit",
-    value: 365,
+    value: 180,
     type: "number",
     active: true,
     order: 2

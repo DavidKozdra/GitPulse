@@ -191,25 +191,32 @@ function calculateRepoScore(details = {}, rules = {}) {
     pushOkFromDetails(details),
     null
   );
-  if (activityScore !== null) {
-    parts.push(scorePart(
-      "activity",
-      "Recent activity",
-      activityScore,
-      50
-    ));
-  }
+  parts.push(scorePart(
+    "activity",
+    "Recent activity",
+    activityScore !== null ? activityScore : 50,
+    50
+  ));
 
-  // For each secondary signal, fall back to a sensible default threshold so the
-  // grade reflects real data even when the user hasn't configured that rule.
+  // Secondary signals (PRs, issues, releases) only exist on GitHub. For other
+  // hosts the data is structurally absent, not just missing — scoring neutral-50
+  // would unfairly cap a perfectly fresh non-GitHub repo at C. Instead, only
+  // include secondary parts when real data is present (GitHub) or when the host
+  // is GitHub but the data hasn't arrived yet (neutral-50 for new repos).
+  const isGithub = details.host === "github.com" || details.host === undefined;
+  const NEUTRAL = 50;
+
   const openPrsMax = Number.isFinite(rules.open_prs_max) ? rules.open_prs_max : 20;
   const openPrCount = finiteNumber(details.openPrCount ?? details.open_pr_count);
   const openPrFlag = flagFromDetails(details, "openPrsOk", "open_prs_ok");
-  if (openPrCount !== null || typeof openPrFlag === "boolean") {
+  const hasOpenPrData = openPrCount !== null || typeof openPrFlag === "boolean";
+  if (hasOpenPrData || isGithub) {
     parts.push(scorePart(
       "openPrs",
       "Open PR load",
-      openPrCount !== null ? maxCountScore(openPrCount, openPrsMax, 0) : booleanScore(openPrFlag),
+      hasOpenPrData
+        ? (openPrCount !== null ? maxCountScore(openPrCount, openPrsMax, 0) : booleanScore(openPrFlag))
+        : NEUTRAL,
       10
     ));
   }
@@ -217,11 +224,12 @@ function calculateRepoScore(details = {}, rules = {}) {
   const closedPrMaxDays = Number.isFinite(rules.last_closed_pr_max_days) ? rules.last_closed_pr_max_days : 90;
   const lastClosedPrAt = details.lastClosedPrAt || details.last_closed_pr_at;
   const lastClosedPrFlag = flagFromDetails(details, "lastClosedPrOk", "last_closed_pr_ok");
-  if (lastClosedPrAt || typeof lastClosedPrFlag === "boolean") {
+  const hasClosedPrData = lastClosedPrAt || typeof lastClosedPrFlag === "boolean";
+  if (hasClosedPrData || isGithub) {
     parts.push(scorePart(
       "closedPr",
       "Closed PR recency",
-      recencyOrFlagScore(lastClosedPrAt, closedPrMaxDays, lastClosedPrFlag, 100),
+      hasClosedPrData ? recencyOrFlagScore(lastClosedPrAt, closedPrMaxDays, lastClosedPrFlag, 100) : NEUTRAL,
       10
     ));
   }
@@ -229,11 +237,12 @@ function calculateRepoScore(details = {}, rules = {}) {
   const issuesMaxDays = Number.isFinite(rules.max_issues_update_time) ? rules.max_issues_update_time : 180;
   const lastIssueUpdatedAt = details.lastIssueUpdatedAt || details.last_issue_updated_at;
   const issuesFlag = flagFromDetails(details, "issuesActivityOk", "issues_activity_ok");
-  if (lastIssueUpdatedAt || typeof issuesFlag === "boolean") {
+  const hasIssuesData = lastIssueUpdatedAt || typeof issuesFlag === "boolean";
+  if (hasIssuesData || isGithub) {
     parts.push(scorePart(
       "issues",
       "Issue activity",
-      recencyOrFlagScore(lastIssueUpdatedAt, issuesMaxDays, issuesFlag, 100),
+      hasIssuesData ? recencyOrFlagScore(lastIssueUpdatedAt, issuesMaxDays, issuesFlag, 100) : NEUTRAL,
       10
     ));
   }
@@ -241,11 +250,12 @@ function calculateRepoScore(details = {}, rules = {}) {
   const releaseMaxDays = Number.isFinite(rules.max_days_since_last_release) ? rules.max_days_since_last_release : 365;
   const lastReleaseAt = details.lastReleaseAt || details.last_release_at;
   const releaseFlag = flagFromDetails(details, "releaseOk", "release_ok");
-  if (lastReleaseAt || typeof releaseFlag === "boolean") {
+  const hasReleaseData = lastReleaseAt || typeof releaseFlag === "boolean";
+  if (hasReleaseData || isGithub) {
     parts.push(scorePart(
       "release",
       "Release recency",
-      recencyOrFlagScore(lastReleaseAt, releaseMaxDays, releaseFlag, 0),
+      hasReleaseData ? recencyOrFlagScore(lastReleaseAt, releaseMaxDays, releaseFlag, 0) : NEUTRAL,
       10
     ));
   }
@@ -253,17 +263,14 @@ function calculateRepoScore(details = {}, rules = {}) {
   const openIssueMaxDays = Number.isFinite(rules.max_open_issue_age) ? rules.max_open_issue_age : 365;
   const oldestOpenIssueCreatedAt = details.oldestOpenIssueCreatedAt || details.oldest_open_issue_created_at;
   const openIssueAgeFlag = flagFromDetails(details, "openIssueAgeOk", "open_issue_age_ok");
-  if (oldestOpenIssueCreatedAt || typeof openIssueAgeFlag === "boolean") {
+  const hasOpenIssueData = oldestOpenIssueCreatedAt || typeof openIssueAgeFlag === "boolean";
+  if (hasOpenIssueData || isGithub) {
     parts.push(scorePart(
       "openIssueAge",
       "Open issue age",
-      recencyOrFlagScore(oldestOpenIssueCreatedAt, openIssueMaxDays, openIssueAgeFlag, 100),
+      hasOpenIssueData ? recencyOrFlagScore(oldestOpenIssueCreatedAt, openIssueMaxDays, openIssueAgeFlag, 100) : NEUTRAL,
       10
     ));
-  }
-
-  if (!parts.length) {
-    return { score: null, grade: null, parts: [], available: false };
   }
 
   const score = weightedScore(parts);
@@ -659,9 +666,14 @@ async function fetchCodebergRepoStatus({ owner, repo }, rules) {
   const repoData = await repoRes.json();
   const isArchived = !!repoData.archived;
 
+  // Gitea exposes pushed_at (last git push) separately from updated_at (metadata
+  // changes like description edits). Use pushed_at so activity scoring reflects
+  // actual commit activity, not repo setting changes.
+  const pushedAt = repoData.pushed_at || repoData.updated_at;
+
   const pushOk = withinDays(
-    repoData.updated_at,
-    Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
+    pushedAt,
+    Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 180
   );
 
   const isActive = !isArchived && pushOk;
@@ -670,7 +682,7 @@ async function fetchCodebergRepoStatus({ owner, repo }, rules) {
     details: {
       host: "codeberg.org",
       updatedAt: repoData.updated_at,
-      pushedAt: repoData.updated_at,
+      pushedAt,
       pushOk,
       isArchived,
     }

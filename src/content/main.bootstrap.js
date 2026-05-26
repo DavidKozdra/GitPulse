@@ -11,7 +11,7 @@
 
   let lastUrl = location.href;
 
-  new MutationObserver(async () => {
+  const navObserver = new MutationObserver(async () => {
     // GitHub and many registry pages update via client-side navigation. Watch
     // for location changes and rerun bootstrap after the extension APIs settle.
     const currentUrl = location.href;
@@ -21,9 +21,14 @@
       // Wait for Chrome to restore extension API context
       await delay(75);
 
-      safeBootstrap();
+      try {
+        await safeBootstrap();
+      } catch (err) {
+        if (isContextInvalidated(err)) navObserver.disconnect();
+      }
     }
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  navObserver.observe(document.body, { childList: true, subtree: true });
 })();
 
 function delay(ms) {
@@ -31,18 +36,24 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+function isContextInvalidated(err) {
+  return err instanceof Error && err.message.includes("Extension context invalidated");
+}
+
 async function safeBootstrap(options = {}) {
   // Content scripts can run while the host page is still replacing DOM nodes or
   // while extension APIs are briefly unavailable. Retry once before giving up.
+  // If the extension context is invalidated (e.g. after an update/reload), stop
+  // immediately — retrying will never succeed and only adds console noise.
   try {
     await bootstrap(options);
   } catch (err) {
-    console.warn("GitPulse bootstrap failed, retrying...", err);
+    if (isContextInvalidated(err)) return;
     await delay(100);
     try {
       await bootstrap(options);
     } catch (err2) {
-      console.error("GitPulse bootstrap failed:", err2);
+      if (!isContextInvalidated(err2)) console.error("GitPulse bootstrap failed:", err2);
     }
   }
 }

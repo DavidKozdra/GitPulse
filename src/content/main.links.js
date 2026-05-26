@@ -225,11 +225,37 @@ function repoRootKey(hostname, parts) {
   }
 }
 
+function linkTextLength(el) {
+  return (el.textContent || "").trim().length;
+}
+
+function linkPathDepth(el) {
+  try {
+    return new URL(el.href).pathname.split("/").filter(Boolean).length;
+  } catch {
+    return 99;
+  }
+}
+
+function betterLinkCandidate(a, b) {
+  // Prefer the shallowest path first (owner/repo beats owner/repo/stars).
+  // Among equal depth, prefer the shortest non-empty text to avoid picking
+  // card wrappers that contain the full card body (name + description + stats).
+  const depthA = linkPathDepth(a);
+  const depthB = linkPathDepth(b);
+  if (depthA !== depthB) return depthA < depthB ? a : b;
+
+  const lenA = linkTextLength(a);
+  const lenB = linkTextLength(b);
+  if (lenA === 0) return b;
+  if (lenB === 0) return a;
+  return lenA <= lenB ? a : b;
+}
+
 function dedupeLinks(links) {
-  // Dedupe by exact href: one element per unique URL, preferring the link with
-  // the most visible text (name link over icon-only link). This handles pages
-  // like the GitHub dashboard where the avatar <a> and the repo name <a> share
-  // the same href and would otherwise both get a badge.
+  // Dedupe by exact href, keeping the shortest non-empty-text link per URL.
+  // Short text = inline repo name link. Long text = card wrapper containing
+  // description, stats etc — we don't want to badge those.
   const byHref = new Map(); // exact href -> chosen element
   for (const el of links) {
     const href = el.href;
@@ -238,17 +264,12 @@ function dedupeLinks(links) {
     if (!byHref.has(href)) {
       byHref.set(href, el);
     } else {
-      const current = byHref.get(href);
-      if ((el.textContent || "").trim().length > (current.textContent || "").trim().length) {
-        byHref.set(href, el);
-      }
+      byHref.set(href, betterLinkCandidate(el, byHref.get(href)));
     }
   }
 
-  // Group the winners by repo root key so sub-pages of the same repo share one fetch.
-  // Keep only the best element per root key (most visible text), so sub-page links
-  // like /stargazers or /forks don't each get their own badge.
-  const map = new Map(); // rootKey -> [bestElement]
+  // Group by repo root key so sub-pages share one fetch and one badge.
+  const map = new Map(); // rootKey -> [element]
   for (const [href, el] of byHref) {
     try {
       const u = new URL(href);
@@ -257,10 +278,7 @@ function dedupeLinks(links) {
       if (!map.has(key)) {
         map.set(key, [el]);
       } else {
-        const existing = map.get(key)[0];
-        if ((el.textContent || "").trim().length > (existing.textContent || "").trim().length) {
-          map.set(key, [el]);
-        }
+        map.set(key, [betterLinkCandidate(el, map.get(key)[0])]);
       }
     } catch {
       // ignore
