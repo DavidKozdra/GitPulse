@@ -27,7 +27,7 @@ describe('validateConfig', () => {
   // safe defaults while valid stored values and unknown future keys survive.
   test('returns defaultConfig when given null', () => {
     const result = validateConfig(null);
-    expect(result.max_repo_update_time.value).toBe(365);
+    expect(result.max_repo_update_time.value).toBe(180);
     expect(result.emoji_active.value).toBe('✅');
     expect(result.grading_enabled.value).toBe(false);
     expect(result.min_active_score.value).toBe(70);
@@ -36,7 +36,7 @@ describe('validateConfig', () => {
 
   test('returns defaultConfig when given non-object', () => {
     const result = validateConfig('not an object');
-    expect(result.max_repo_update_time.value).toBe(365);
+    expect(result.max_repo_update_time.value).toBe(180);
   });
 
   test('merges stored config with defaults', () => {
@@ -54,7 +54,7 @@ describe('validateConfig', () => {
       max_repo_update_time: { value: -50, active: true },
     };
     const result = validateConfig(stored);
-    expect(result.max_repo_update_time.value).toBe(365);
+    expect(result.max_repo_update_time.value).toBe(180);
   });
 
   test('rejects NaN values for number fields', () => {
@@ -62,7 +62,7 @@ describe('validateConfig', () => {
       max_repo_update_time: { value: NaN, active: true },
     };
     const result = validateConfig(stored);
-    expect(result.max_repo_update_time.value).toBe(365);
+    expect(result.max_repo_update_time.value).toBe(180);
   });
 
   test('truncates text values to 8 chars', () => {
@@ -139,6 +139,6 @@ describe('validateConfig', () => {
       max_repo_update_time: null,
     };
     const result = validateConfig(stored);
-    expect(result.max_repo_update_time.value).toBe(365);
+    expect(result.max_repo_update_time.value).toBe(180);
   });
 });

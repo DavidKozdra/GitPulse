@@ -18,6 +18,7 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 // host can reset its quota, and we do not want stale throttling to linger all day.
 const RATE_TTL_MS = 1000 * 60 * 60 * 2;
 const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
+const inFlightRepoStatusRequests = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("GitPulse Installed");
@@ -77,12 +78,11 @@ function recencyScore(dateStr, maxDays, missingScore = 0) {
   if (ageDays === null) return clampScore(missingScore);
   if (!Number.isFinite(maxDays)) return 100;
   if (maxDays <= 0) return ageDays <= 0 ? 100 : 0;
-  // Decay starts at half the threshold so scores spread across the full A–F
-  // range instead of staying at 100 until the hard cutoff.
-  const decayStart = maxDays * 0.5;
-  if (ageDays <= decayStart) return 100;
+  // Repos remain fully healthy through the configured threshold, then decay
+  // linearly to zero over the next threshold window.
+  if (ageDays <= maxDays) return 100;
   if (ageDays >= maxDays * 2) return 0;
-  return clampScore(100 * (1 - ((ageDays - decayStart) / (maxDays * 2 - decayStart))));
+  return clampScore(100 * (1 - ((ageDays - maxDays) / maxDays)));
 }
 
 function maxCountScore(count, maxCount, missingScore = 0) {
@@ -191,32 +191,27 @@ function calculateRepoScore(details = {}, rules = {}) {
     pushOkFromDetails(details),
     null
   );
-  parts.push(scorePart(
-    "activity",
-    "Recent activity",
-    activityScore !== null ? activityScore : 50,
-    50
-  ));
+  if (activityScore !== null) {
+    parts.push(scorePart(
+      "activity",
+      "Recent activity",
+      activityScore,
+      50
+    ));
+  }
 
-  // Secondary signals (PRs, issues, releases) only exist on GitHub. For other
-  // hosts the data is structurally absent, not just missing — scoring neutral-50
-  // would unfairly cap a perfectly fresh non-GitHub repo at C. Instead, only
-  // include secondary parts when real data is present (GitHub) or when the host
-  // is GitHub but the data hasn't arrived yet (neutral-50 for new repos).
-  const isGithub = details.host === "github.com" || details.host === undefined;
-  const NEUTRAL = 50;
+  // Only score signals that are concretely present. Missing data should not
+  // dilute the grade or make score mode override the adapter's binary status.
 
   const openPrsMax = Number.isFinite(rules.open_prs_max) ? rules.open_prs_max : 20;
   const openPrCount = finiteNumber(details.openPrCount ?? details.open_pr_count);
   const openPrFlag = flagFromDetails(details, "openPrsOk", "open_prs_ok");
   const hasOpenPrData = openPrCount !== null || typeof openPrFlag === "boolean";
-  if (hasOpenPrData || isGithub) {
+  if (hasOpenPrData) {
     parts.push(scorePart(
       "openPrs",
       "Open PR load",
-      hasOpenPrData
-        ? (openPrCount !== null ? maxCountScore(openPrCount, openPrsMax, 0) : booleanScore(openPrFlag))
-        : NEUTRAL,
+      openPrCount !== null ? maxCountScore(openPrCount, openPrsMax, 0) : booleanScore(openPrFlag),
       10
     ));
   }
@@ -225,11 +220,11 @@ function calculateRepoScore(details = {}, rules = {}) {
   const lastClosedPrAt = details.lastClosedPrAt || details.last_closed_pr_at;
   const lastClosedPrFlag = flagFromDetails(details, "lastClosedPrOk", "last_closed_pr_ok");
   const hasClosedPrData = lastClosedPrAt || typeof lastClosedPrFlag === "boolean";
-  if (hasClosedPrData || isGithub) {
+  if (hasClosedPrData) {
     parts.push(scorePart(
       "closedPr",
       "Closed PR recency",
-      hasClosedPrData ? recencyOrFlagScore(lastClosedPrAt, closedPrMaxDays, lastClosedPrFlag, 100) : NEUTRAL,
+      recencyOrFlagScore(lastClosedPrAt, closedPrMaxDays, lastClosedPrFlag, 100),
       10
     ));
   }
@@ -238,11 +233,11 @@ function calculateRepoScore(details = {}, rules = {}) {
   const lastIssueUpdatedAt = details.lastIssueUpdatedAt || details.last_issue_updated_at;
   const issuesFlag = flagFromDetails(details, "issuesActivityOk", "issues_activity_ok");
   const hasIssuesData = lastIssueUpdatedAt || typeof issuesFlag === "boolean";
-  if (hasIssuesData || isGithub) {
+  if (hasIssuesData) {
     parts.push(scorePart(
       "issues",
       "Issue activity",
-      hasIssuesData ? recencyOrFlagScore(lastIssueUpdatedAt, issuesMaxDays, issuesFlag, 100) : NEUTRAL,
+      recencyOrFlagScore(lastIssueUpdatedAt, issuesMaxDays, issuesFlag, 100),
       10
     ));
   }
@@ -251,11 +246,11 @@ function calculateRepoScore(details = {}, rules = {}) {
   const lastReleaseAt = details.lastReleaseAt || details.last_release_at;
   const releaseFlag = flagFromDetails(details, "releaseOk", "release_ok");
   const hasReleaseData = lastReleaseAt || typeof releaseFlag === "boolean";
-  if (hasReleaseData || isGithub) {
+  if (hasReleaseData) {
     parts.push(scorePart(
       "release",
       "Release recency",
-      hasReleaseData ? recencyOrFlagScore(lastReleaseAt, releaseMaxDays, releaseFlag, 0) : NEUTRAL,
+      recencyOrFlagScore(lastReleaseAt, releaseMaxDays, releaseFlag, 0),
       10
     ));
   }
@@ -264,13 +259,17 @@ function calculateRepoScore(details = {}, rules = {}) {
   const oldestOpenIssueCreatedAt = details.oldestOpenIssueCreatedAt || details.oldest_open_issue_created_at;
   const openIssueAgeFlag = flagFromDetails(details, "openIssueAgeOk", "open_issue_age_ok");
   const hasOpenIssueData = oldestOpenIssueCreatedAt || typeof openIssueAgeFlag === "boolean";
-  if (hasOpenIssueData || isGithub) {
+  if (hasOpenIssueData) {
     parts.push(scorePart(
       "openIssueAge",
       "Open issue age",
-      hasOpenIssueData ? recencyOrFlagScore(oldestOpenIssueCreatedAt, openIssueMaxDays, openIssueAgeFlag, 100) : NEUTRAL,
+      recencyOrFlagScore(oldestOpenIssueCreatedAt, openIssueMaxDays, openIssueAgeFlag, 100),
       10
     ));
+  }
+
+  if (!parts.length) {
+    return { score: 0, grade: "F", parts: [], available: false };
   }
 
   const score = weightedScore(parts);
@@ -391,6 +390,33 @@ async function fetchJson(url, options = {}) {
   return { response, data: await response.json(), rateLimited: false };
 }
 
+function readResponseHeader(response, name) {
+  if (!response || !name) return "";
+  const headerName = String(name).toLowerCase();
+  if (response.headers && typeof response.headers.get === "function") {
+    return response.headers.get(name) || response.headers.get(headerName) || "";
+  }
+  if (isPlainObject(response.headers)) {
+    const direct = response.headers[name] ?? response.headers[headerName];
+    return typeof direct === "string" ? direct : "";
+  }
+  return "";
+}
+
+function githubLastPageCount(response, items) {
+  const linkHeader = readResponseHeader(response, "link");
+  const lastMatch = /[?&]page=(\d+)[^>]*>;\s*rel="last"/i.exec(linkHeader);
+  if (lastMatch) {
+    const lastPage = Number(lastMatch[1]);
+    if (Number.isFinite(lastPage)) return lastPage;
+  }
+  return Array.isArray(items) ? items.length : 0;
+}
+
+function needsGithubSecondarySignals(rules = {}) {
+  return rules.score_decides_status === true || rules.grading_enabled === true;
+}
+
 function maxIsoDate(values) {
   // Several package APIs return one timestamp per release/file. Keep the newest
   // valid ISO-ish value and ignore absent or malformed values.
@@ -488,6 +514,30 @@ async function clearCache() {
   return { success: true };
 }
 
+function cacheableRepoStatus(status) {
+  return status === true || status === false || status === "rate_limited";
+}
+
+function cacheEntryFromResult(result = {}) {
+  const entry = {
+    isActive: result.status,
+    details: isPlainObject(result.details) ? result.details : {},
+  };
+  if (Number.isFinite(result.score)) entry.score = result.score;
+  if (typeof result.grade === "string") entry.grade = result.grade;
+  return entry;
+}
+
+function responseFromCacheItem(item = {}) {
+  const cachedResult = {
+    status: item.isActive,
+    details: isPlainObject(item.details) ? item.details : {},
+  };
+  if (Number.isFinite(item.score)) cachedResult.score = item.score;
+  if (typeof item.grade === "string") cachedResult.grade = item.grade;
+  return cachedResult;
+}
+
 // Read PAT only in background
 async function getPAT() {
   const { githubPAT } = await getLocal(["githubPAT"]);
@@ -526,34 +576,43 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
   const repoData = await repoRes.json();
   const isArchived = !!repoData.archived;
+  const baseline = activityStatus({
+    host: "github.com",
+    pushedAt: repoData.pushed_at,
+    updatedAt: repoData.updated_at,
+    archived: isArchived,
+  }, rules);
 
   // Archived repos are immediately inactive; no need to continue with more GitHub calls
   if (isArchived) {
-    return activityStatus({
-      host: "github.com",
-      pushedAt: repoData.pushed_at,
-      updatedAt: repoData.updated_at,
-      archived: true,
-    }, rules);
+    return baseline;
   }
 
-  // 2) Open PR threshold. The search API exposes total_count without needing to
-  // page through every open PR, which keeps checks cheap.
+  // 2) Core push recency. If the repo is already stale and score mode is off,
+  // do not spend extra GitHub quota on secondary checks that cannot flip the
+  // active/inactive decision.
+  const pushOk = baseline.details.pushOk;
+  if (!pushOk && !needsGithubSecondarySignals(rules)) {
+    return baseline;
+  }
+
+  // 3) Open PR threshold. The pulls endpoint consumes the broader core quota
+  // instead of GitHub's much tighter search quota.
   let openPrsOk = true;
   let openPrCount = null;
   if (Number.isFinite(rules.open_prs_max)) {
     const prsRes = await fetch(
-      `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:pr+is:open&per_page=1`,
+      `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=1`,
       { headers }
     );
     if (prsRes.status === 403) return { status: "rate_limited" };
-    if (!prsRes.ok) throw new Error(`GitHub search PRs failed: ${prsRes.status}`);
+    if (!prsRes.ok) throw new Error(`GitHub open PRs failed: ${prsRes.status}`);
     const prs = await prsRes.json();
-    openPrCount = prs.total_count || 0;
+    openPrCount = githubLastPageCount(prsRes, prs);
     openPrsOk = openPrCount <= rules.open_prs_max;
   }
 
-  // 3) Last closed PR age. A repo can be active even with low commit volume if
+  // 4) Last closed PR age. A repo can be active even with low commit volume if
   // maintainers are still closing or merging PRs.
   let lastClosedPrOk = true;
   let lastClosedPrAt = null;
@@ -568,13 +627,6 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     lastClosedPrAt = closed?.[0]?.closed_at || closed?.[0]?.merged_at || null;
     lastClosedPrOk = withinDays(lastClosedPrAt, rules.last_closed_pr_max_days);
   }
-
-  // 4) Core push recency. This is the default rule and remains the main signal
-  // when optional rules are not enabled.
-  const pushOk = withinDays(
-    repoData.pushed_at,
-    Number.isFinite(rules.max_repo_update_time) ? rules.max_repo_update_time : 365
-  );
 
   // 5) Issue activity recency. This optional rule catches repos where issues are
   // still being triaged even if pushes are infrequent.
@@ -1183,40 +1235,53 @@ async function handleMessage(message, sender, sendResponse) {
         const forceRefresh = message.forceRefresh === true;
         const cached = forceRefresh ? null : await readCache(cacheKey);
         if (cached) {
-          const cachedResult = { status: cached.isActive, details: cached.details };
-          if (Number.isFinite(cached.score)) cachedResult.score = cached.score;
-          if (typeof cached.grade === "string") cachedResult.grade = cached.grade;
           sendResponse({
             ok: true,
-            result: cachedResult,
+            result: responseFromCacheItem(cached),
             fromCache: true,
           });
           return;
         }
 
-        const rules = await loadActiveRules();
-        try {
-          const result = await fetchRepoStatusByUrl(message.url, rules);
-          if (result && (result.status === true || result.status === false)) {
-            await writeCache(cacheKey, {
-              isActive: result.status,
-              details: result.details,
-              score: result.score,
-              grade: result.grade,
-            });
-          }
-          sendResponse({ ok: true, result, fromCache: false });
-        } catch (err) {
-          const errMsg = String(err);
-          const isRateLimit = /rate.limit|429|403/i.test(errMsg);
-          sendResponse({
-            ok: true,
-            result: {
+        const inFlight = forceRefresh ? null : inFlightRepoStatusRequests.get(cacheKey);
+        if (inFlight) {
+          sendResponse({ ok: true, result: await inFlight, fromCache: false });
+          return;
+        }
+
+        const requestPromise = (async () => {
+          const rules = await loadActiveRules();
+          try {
+            const result = await fetchRepoStatusByUrl(message.url, rules);
+            if (result && cacheableRepoStatus(result.status)) {
+              await writeCache(cacheKey, cacheEntryFromResult(result));
+            }
+            return result;
+          } catch (err) {
+            const errMsg = String(err);
+            const isRateLimit = /rate.limit|429|403/i.test(errMsg);
+            const result = {
               status: isRateLimit ? "rate_limited" : false,
               details: { error: errMsg },
-            },
-            fromCache: false,
-          });
+            };
+            if (isRateLimit) {
+              await writeCache(cacheKey, cacheEntryFromResult(result));
+            }
+            return result;
+          }
+        })();
+
+        if (!forceRefresh) {
+          inFlightRepoStatusRequests.set(cacheKey, requestPromise);
+        }
+
+        try {
+          const result = await requestPromise;
+          sendResponse({ ok: true, result, fromCache: false });
+        } finally {
+          if (!forceRefresh && inFlightRepoStatusRequests.get(cacheKey) === requestPromise) {
+            inFlightRepoStatusRequests.delete(cacheKey);
+          }
         }
         return;
       }

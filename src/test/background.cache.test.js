@@ -314,6 +314,101 @@ describe('fetchRepoStatus cache behavior', () => {
     }));
   });
 
+  test('caches rate-limited results and reuses them on the next request', async () => {
+    fetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+    });
+    const firstResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://gitlab.com/group/project' },
+      {},
+      firstResponse
+    );
+
+    expect(storage['repoCache:gitlab.com/group/project']).toEqual(expect.objectContaining({
+      isActive: 'rate_limited',
+      details: expect.objectContaining({ host: 'gitlab.com' }),
+      v: CACHE_SCHEMA_VERSION,
+    }));
+    expect(firstResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      fromCache: false,
+      result: expect.objectContaining({
+        status: 'rate_limited',
+        details: expect.objectContaining({ host: 'gitlab.com' }),
+      }),
+    }));
+
+    fetch.mockClear();
+    const secondResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://gitlab.com/group/project' },
+      {},
+      secondResponse
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(secondResponse).toHaveBeenCalledWith({
+      ok: true,
+      result: { status: 'rate_limited', details: { host: 'gitlab.com' } },
+      fromCache: true,
+    });
+  });
+
+  test('coalesces concurrent requests for the same repo while a fetch is in flight', async () => {
+    let releaseFetch;
+    let markFetchStarted;
+    const fetchStarted = new Promise((resolve) => {
+      markFetchStarted = resolve;
+    });
+    fetch.mockImplementation(() => new Promise((resolve) => {
+      markFetchStarted();
+      releaseFetch = () => resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          archived: false,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    }));
+
+    const firstResponse = jest.fn();
+    const secondResponse = jest.fn();
+
+    const firstRequest = handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo' },
+      {},
+      firstResponse
+    );
+    const secondRequest = handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo' },
+      {},
+      secondResponse
+    );
+
+    await fetchStarted;
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    releaseFetch();
+    await Promise.all([firstRequest, secondRequest]);
+
+    expect(firstResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      fromCache: false,
+      result: expect.objectContaining({ status: true }),
+    }));
+    expect(secondResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      fromCache: false,
+      result: expect.objectContaining({ status: true }),
+    }));
+  });
+
   test('returns unsupported instead of active for unknown fetch hosts', async () => {
     const result = await fetchRepoStatusByUrl('https://example.test/owner/repo', {});
     expect(result.status).toBe('unsupported');
@@ -449,6 +544,68 @@ describe('score grading', () => {
     expect(result.status).toBe(true);
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(result.details.scoreDecidesStatus).toBe(true);
+  });
+
+  test('short-circuits extra GitHub calls for stale repos when scoring is off', async () => {
+    const stale = new Date(Date.now() - (400 * 24 * 60 * 60 * 1000)).toISOString();
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        pushed_at: stale,
+        updated_at: stale,
+      }),
+    });
+
+    const result = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {
+      max_repo_update_time: 180,
+      open_prs_max: 20,
+      last_closed_pr_max_days: 90,
+      max_issues_update_time: 180,
+      max_days_since_last_release: 365,
+      max_open_issue_age: 365,
+      grading_enabled: false,
+      score_decides_status: false,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.details.pushOk).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe('https://api.github.com/repos/owner/repo');
+  });
+
+  test('counts GitHub open PRs from pulls pagination instead of search', async () => {
+    const now = new Date().toISOString();
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          archived: false,
+          pushed_at: now,
+          updated_at: now,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name) => name.toLowerCase() === 'link'
+            ? '<https://api.github.com/repos/owner/repo/pulls?state=open&per_page=1&page=21>; rel="last"'
+            : null,
+        },
+        json: async () => ([{}]),
+      });
+
+    const result = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {
+      max_repo_update_time: 365,
+      open_prs_max: 20,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.details.openPrCount).toBe(21);
+    expect(fetch.mock.calls[1][0]).toBe('https://api.github.com/repos/owner/repo/pulls?state=open&per_page=1');
   });
 
   test('archives are always an F and inactive even in score mode', async () => {

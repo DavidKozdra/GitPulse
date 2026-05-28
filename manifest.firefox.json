@@ -60,6 +60,7 @@
                   "48":  "GitPulse/src/icons/icon-48.png",
                   "128":  "GitPulse/src/icons/icon-128.png"
               },
+    "web_accessible_resources": ["GitPulse/src/icon.png"],
     "browser_specific_settings":  {
                                       "gecko":  {
                                                     "id":  "gitpulse@example.com",

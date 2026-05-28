@@ -138,7 +138,8 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-
+.codex
+.agents
 
 Archive.zip
 src.zip
