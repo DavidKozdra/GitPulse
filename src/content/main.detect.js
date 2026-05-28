@@ -41,20 +41,38 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
   return false;
 }
 
+function githubRepoPrivateScopes() {
+  const selectors = [
+    '#repository-container-header',
+    '[data-testid="repository-container-header"]',
+    '[data-testid="repository-header"]',
+    'main h1',
+    '.AppHeader-context-full',
+    '.AppHeader-context-item',
+  ];
+  const scopes = selectors
+    .map((selector) => document.querySelector(selector))
+    .filter(Boolean);
+  return scopes.filter((scope, index) => scopes.indexOf(scope) === index);
+}
+
 // Best-effort detection of a private GitHub repository from the DOM
 function isGithubRepoPrivate() {
   // Private repositories can be detected locally before making a remote status
-  // request. This avoids confusing private pages with inactive public repos.
+  // request. Keep this conservative: a false negative falls back to the normal
+  // status fetch, while a false positive incorrectly forces the locked banner.
   try {
-    // Look for a label with text "Private" near the repo title
-    const labels = document.querySelectorAll('span.Label, span.Label--secondary, span[data-view-component="true"].Label');
-    for (const el of labels) {
-      const text = (el.textContent || '').trim().toLowerCase();
-      if (text === 'private') return true;
+    const scopes = githubRepoPrivateScopes();
+    for (const scope of scopes) {
+      const labels = scope.querySelectorAll('span.Label, span.Label--secondary, span[data-view-component="true"].Label');
+      for (const el of labels) {
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (text === 'private') return true;
+      }
+
+      const lockEl = scope.querySelector('svg[aria-label="Private"]');
+      if (lockEl) return true;
     }
-    // Fallback: lock icon with accessible label
-    const lockEl = document.querySelector('svg[aria-label="Private"]');
-    if (lockEl) return true;
   } catch {}
   return false;
 }
@@ -64,6 +82,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     looksLikeGithubRepoUrl,
     isGithubRepoPageNow,
+    githubRepoPrivateScopes,
     isGithubRepoPrivate,
   };
 }

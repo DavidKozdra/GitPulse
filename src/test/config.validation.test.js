@@ -29,7 +29,7 @@ describe('validateConfig', () => {
     const result = validateConfig(null);
     expect(result.max_repo_update_time.value).toBe(180);
     expect(result.emoji_active.value).toBe('✅');
-    expect(result.grading_enabled.value).toBe(false);
+    expect(result.grading_enabled.value).toBe(true);
     expect(result.min_active_score.value).toBe(70);
     expect(result.marker_display.value).toBe('emoji');
   });
@@ -114,7 +114,7 @@ describe('validateConfig', () => {
       grading_enabled: { value: 'yes', active: true },
     };
     const result = validateConfig(stored);
-    expect(result.grading_enabled.value).toBe(false);
+    expect(result.grading_enabled.value).toBe(true);
   });
 
   test('preserves valid select values', () => {

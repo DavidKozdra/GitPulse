@@ -50,18 +50,24 @@ describe('isGithubRepoPrivate control tests', () => {
   });
 
   test('detects private label near the repo title', () => {
-    document.body.innerHTML = '<span class="Label">Private</span>';
+    document.body.innerHTML = '<main><h1><span class="Label">Private</span></h1></main>';
     expect(isGithubRepoPrivate()).toBe(true);
   });
 
   test('detects private lock icon via aria-label', () => {
     document.body.innerHTML =
-      '<svg aria-label="Private"><title>Private</title></svg>';
+      '<main><h1><svg aria-label="Private"><title>Private</title></svg></h1></main>';
     expect(isGithubRepoPrivate()).toBe(true);
   });
 
+  test('ignores unrelated private labels outside the repo header', () => {
+    document.body.innerHTML =
+      '<aside><span class="Label">Private</span></aside><main><div>Repo content</div></main>';
+    expect(isGithubRepoPrivate()).toBe(false);
+  });
+
   test('returns false when no private indicators present', () => {
-    document.body.innerHTML = '<span class="Label">Public</span>';
+    document.body.innerHTML = '<main><h1><span class="Label">Public</span></h1></main>';
     expect(isGithubRepoPrivate()).toBe(false);
   });
 });
