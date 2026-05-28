@@ -17,8 +17,11 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 // Rate-limit responses intentionally expire faster. A user can add a PAT or the
 // host can reset its quota, and we do not want stale throttling to linger all day.
 const RATE_TTL_MS = 1000 * 60 * 60 * 2;
+const GITHUB_THROTTLE_FALLBACK_MS = 1000 * 60 * 15;
 const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
 const inFlightRepoStatusRequests = new Map();
+let githubThrottleUntil = 0;
+let githubRequestQueue = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("GitPulse Installed");
@@ -403,6 +406,85 @@ function readResponseHeader(response, name) {
   return "";
 }
 
+function parseRetryAfterMs(value) {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric * 1000;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed - now()) : null;
+}
+
+function githubRateLimitRemaining(response) {
+  const raw = readResponseHeader(response, "x-ratelimit-remaining");
+  if (raw === "") return null;
+  const remaining = Number(raw);
+  return Number.isFinite(remaining) ? remaining : null;
+}
+
+function setGithubThrottleUntil(untilMs) {
+  if (!Number.isFinite(untilMs)) return;
+  githubThrottleUntil = Math.max(githubThrottleUntil, untilMs);
+}
+
+function clearExpiredGithubThrottle() {
+  if (githubThrottleUntil > 0 && githubThrottleUntil <= now()) {
+    githubThrottleUntil = 0;
+  }
+}
+
+function isGithubThrottleActive() {
+  clearExpiredGithubThrottle();
+  return githubThrottleUntil > now();
+}
+
+function rememberGithubThrottle(response, fallbackMs = GITHUB_THROTTLE_FALLBACK_MS) {
+  const retryAfterMs = parseRetryAfterMs(readResponseHeader(response, "retry-after"));
+  const resetAtSeconds = Number(readResponseHeader(response, "x-ratelimit-reset"));
+  const candidates = [];
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) candidates.push(now() + retryAfterMs);
+  if (Number.isFinite(resetAtSeconds) && resetAtSeconds > 0) candidates.push(resetAtSeconds * 1000);
+  candidates.push(now() + fallbackMs);
+  setGithubThrottleUntil(Math.max(...candidates));
+}
+
+function queueGithubTask(task) {
+  const queued = githubRequestQueue.catch(() => undefined).then(task);
+  githubRequestQueue = queued.catch(() => undefined);
+  return queued;
+}
+
+function withGithubBackoff(onLimited, task) {
+  return queueGithubTask(async () => {
+    if (isGithubThrottleActive()) return onLimited();
+    return task();
+  });
+}
+
+function fetchGithubJson(url, options = {}, settings = {}) {
+  const fallbackMs = Number.isFinite(settings.fallbackMs)
+    ? settings.fallbackMs
+    : GITHUB_THROTTLE_FALLBACK_MS;
+
+  return withGithubBackoff(
+    () => ({ response: null, data: null, rateLimited: true }),
+    async () => {
+      const response = Object.keys(options).length ? await fetch(url, options) : await fetch(url);
+      const remaining = githubRateLimitRemaining(response);
+
+      if (response.status === 429 || response.status === 403 || remaining === 0) {
+        rememberGithubThrottle(response, fallbackMs);
+      }
+
+      if (response.status === 429 || response.status === 403) {
+        return { response, data: null, rateLimited: true };
+      }
+
+      if (!response.ok) return { response, data: null, rateLimited: false };
+      return { response, data: await response.json(), rateLimited: false };
+    }
+  );
+}
+
 function githubLastPageCount(response, items) {
   const linkHeader = readResponseHeader(response, "link");
   const lastMatch = /[?&]page=(\d+)[^>]*>;\s*rel="last"/i.exec(linkHeader);
@@ -566,15 +648,17 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   };
 
   // 1) Repo metadata supplies archive state plus the baseline activity dates.
-  const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
-  if (repoRes.status === 403) return { status: "rate_limited" };
+  const { response: repoRes, data: repoData, rateLimited: repoRateLimited } = await fetchGithubJson(
+    `https://api.github.com/repos/${owner}/${repo}`,
+    { headers }
+  );
+  if (repoRateLimited) return rateLimitedStatus("github.com");
   if (repoRes.status === 404 || repoRes.status === 401) {
     // Unauthenticated access to a private repo is surfaced as 404 by GitHub.
     // Treat 401 similarly when token lacks access.
     return { status: "private" };
   }
   if (!repoRes.ok) throw new Error(`GitHub repo API failed: ${repoRes.status}`);
-  const repoData = await repoRes.json();
   const isArchived = !!repoData.archived;
   const baseline = activityStatus({
     host: "github.com",
@@ -601,13 +685,12 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   let openPrsOk = true;
   let openPrCount = null;
   if (Number.isFinite(rules.open_prs_max)) {
-    const prsRes = await fetch(
+    const { response: prsRes, data: prs, rateLimited: prsRateLimited } = await fetchGithubJson(
       `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=1`,
       { headers }
     );
-    if (prsRes.status === 403) return { status: "rate_limited" };
+    if (prsRateLimited) return rateLimitedStatus("github.com");
     if (!prsRes.ok) throw new Error(`GitHub open PRs failed: ${prsRes.status}`);
-    const prs = await prsRes.json();
     openPrCount = githubLastPageCount(prsRes, prs);
     openPrsOk = openPrCount <= rules.open_prs_max;
   }
@@ -617,13 +700,12 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   let lastClosedPrOk = true;
   let lastClosedPrAt = null;
   if (Number.isFinite(rules.last_closed_pr_max_days)) {
-    const closedRes = await fetch(
+    const { response: closedRes, data: closed, rateLimited: closedRateLimited } = await fetchGithubJson(
       `https://api.github.com/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=1`,
       { headers }
     );
-    if (closedRes.status === 403) return { status: "rate_limited" };
+    if (closedRateLimited) return rateLimitedStatus("github.com");
     if (!closedRes.ok) throw new Error(`GitHub closed PRs failed: ${closedRes.status}`);
-    const closed = await closedRes.json();
     lastClosedPrAt = closed?.[0]?.closed_at || closed?.[0]?.merged_at || null;
     lastClosedPrOk = withinDays(lastClosedPrAt, rules.last_closed_pr_max_days);
   }
@@ -633,13 +715,12 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   let issuesActivityOk = true;
   let lastIssueUpdatedAt = null;
   if (Number.isFinite(rules.max_issues_update_time)) {
-    const issuesRes = await fetch(
+    const { response: issuesRes, data: issues, rateLimited: issuesRateLimited } = await fetchGithubJson(
       `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue&sort=updated&order=desc&per_page=1`,
       { headers }
     );
-    if (issuesRes.status === 403) return { status: "rate_limited" };
+    if (issuesRateLimited) return rateLimitedStatus("github.com");
     if (!issuesRes.ok) throw new Error(`GitHub search issues failed: ${issuesRes.status}`);
-    const issues = await issuesRes.json();
     lastIssueUpdatedAt = issues?.items?.[0]?.updated_at || null;
     issuesActivityOk = withinDays(lastIssueUpdatedAt, rules.max_issues_update_time);
   }
@@ -649,14 +730,13 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   let releaseOk = true;
   let lastReleaseAt = null;
   if (Number.isFinite(rules.max_days_since_last_release)) {
-    const relRes = await fetch(
+    const { response: relRes, data: rels, rateLimited: releaseRateLimited } = await fetchGithubJson(
       `https://api.github.com/repos/${owner}/${repo}/releases?per_page=1`,
       { headers }
     );
-    if (relRes.status === 403) return { status: "rate_limited" };
+    if (releaseRateLimited) return rateLimitedStatus("github.com");
     if (!relRes.ok && relRes.status !== 404) throw new Error(`GitHub releases failed: ${relRes.status}`);
     if (relRes.ok) {
-      const rels = await relRes.json();
       const rel = rels?.[0];
       lastReleaseAt = rel?.published_at || rel?.created_at;
     }
@@ -669,13 +749,12 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   let openIssueAgeOk = true;
   let oldestOpenIssueCreatedAt = null;
   if (Number.isFinite(rules.max_open_issue_age)) {
-    const oldestOpenRes = await fetch(
+    const { response: oldestOpenRes, data: oldest, rateLimited: oldestIssueRateLimited } = await fetchGithubJson(
       `https://api.github.com/search/issues?q=repo:${owner}/${repo}+is:issue+is:open&sort=created&order=asc&per_page=1`,
       { headers }
     );
-    if (oldestOpenRes.status === 403) return { status: "rate_limited" };
+    if (oldestIssueRateLimited) return rateLimitedStatus("github.com");
     if (!oldestOpenRes.ok) throw new Error(`GitHub oldest open issue failed: ${oldestOpenRes.status}`);
-    const oldest = await oldestOpenRes.json();
     oldestOpenIssueCreatedAt = oldest?.items?.[0]?.created_at || null;
     // Pass if there are no open issues (items empty) or if oldest is within threshold
     openIssueAgeOk = withinDays(oldestOpenIssueCreatedAt, rules.max_open_issue_age);
@@ -945,29 +1024,40 @@ async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
   // When there is no user PAT, defer GitHub checks to the edge function. It
   // returns the same status shape as the direct GitHub adapter so callers do not
   // need a special case.
-  const resp = await fetch(SUPABASE_GITHUB_STATUS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify({ owner, repo, rules }),
-  });
+  return withGithubBackoff(
+    () => rateLimitedStatus("github.com"),
+    async () => {
+      const resp = await fetch(SUPABASE_GITHUB_STATUS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ owner, repo, rules }),
+      });
 
-  if (!resp.ok) {
-    console.error("Supabase response not ok:", resp.status);
-    if (resp.status === 429 || resp.status === 403) {
-      return rateLimitedStatus("github.com");
+      if (!resp.ok) {
+        console.error("Supabase response not ok:", resp.status);
+        if (resp.status === 429 || resp.status === 403) {
+          rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
+          return rateLimitedStatus("github.com");
+        }
+        throw new Error(`Supabase github-status failed: ${resp.status}`);
+      }
+
+      if (githubRateLimitRemaining(resp) === 0) {
+        rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
+      }
+
+      const data = await resp.json();
+      if (data?.status === "rate_limited" || data?.rateLimited === true) {
+        rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
+        return rateLimitedStatus("github.com");
+      }
+      return data;
     }
-    throw new Error(`Supabase github-status failed: ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  if (data?.status === "rate_limited" || data?.rateLimited === true) {
-    return rateLimitedStatus("github.com");
-  }
-  return data;
+  );
 }
 
 

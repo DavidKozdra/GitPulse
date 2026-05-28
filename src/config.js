@@ -12,51 +12,54 @@ const defaultConfig = {
     active: true,
     order: 2
   },
+  // These GitHub-only secondary checks each trigger extra API requests, so
+  // keep them opt-in by default and let users enable them when they want a
+  // richer score.
   open_prs_max: {
     name: "Max number of open PRs",
     value: 20,
     type: "number",
-    active: true,
+    active: false,
     order: 3
   },
   last_closed_pr_max_days: {
     name: "Max days since last closed PR",
     value: 90,
     type: "number",
-    active: true,
+    active: false,
     order: 4
   },
   max_issues_update_time: {
     name: "Max days since last issue activity",
     value: 180,
     type: "number",
-    active: true,
+    active: false,
     order: 20
   },
   max_days_since_last_release: {
     name: "Max days since last release",
     value: 365,
     type: "number",
-    active: true,
+    active: false,
     order: 21
   },
   max_open_issue_age: {
     name: "Max age of open issues in days",
     value: 365,
     type: "number",
-    active: true,
+    active: false,
     order: 24
   },
   grading_enabled: {
     name: "Show GitPulse grade badge",
-    value: false,
+    value: true,
     type: "boolean",
     active: true,
     order: 30
   },
   score_decides_status: {
     name: "Use score for active status",
-    value: false,
+    value: true,
     type: "boolean",
     active: true,
     order: 31

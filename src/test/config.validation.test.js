@@ -39,6 +39,16 @@ describe('validateConfig', () => {
     expect(result.max_repo_update_time.value).toBe(180);
   });
 
+  test('keeps request-heavy secondary GitHub checks opt-in by default', () => {
+    const result = validateConfig(null);
+    expect(result.open_prs_max.active).toBe(false);
+    expect(result.last_closed_pr_max_days.active).toBe(false);
+    expect(result.max_issues_update_time.active).toBe(false);
+    expect(result.max_days_since_last_release.active).toBe(false);
+    expect(result.max_open_issue_age.active).toBe(false);
+    expect(result.max_repo_update_time.active).toBe(true);
+  });
+
   test('merges stored config with defaults', () => {
     const stored = {
       max_repo_update_time: { value: 180, active: true },

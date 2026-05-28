@@ -56,6 +56,11 @@ const patchedSource = bgSource
   .replace(/^let /gm, 'var ');
 eval(patchedSource);
 
+beforeEach(() => {
+  githubThrottleUntil = 0;
+  githubRequestQueue = Promise.resolve();
+});
+
 describe('cache helpers', () => {
   // These tests define the cache contract: versioned entries, normal TTL,
   // shorter rate-limit TTL, and cache-only removal without touching unrelated
@@ -412,6 +417,92 @@ describe('fetchRepoStatus cache behavior', () => {
   test('returns unsupported instead of active for unknown fetch hosts', async () => {
     const result = await fetchRepoStatusByUrl('https://example.test/owner/repo', {});
     expect(result.status).toBe('unsupported');
+  });
+});
+
+describe('GitHub throttling guard', () => {
+  beforeEach(() => {
+    Object.keys(storage).forEach(k => delete storage[k]);
+    fetch.mockReset();
+  });
+
+  test('records GitHub reset headers and skips the next request until reset', async () => {
+    const resetAt = Math.floor(Date.now() / 1000) + 60;
+    fetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: {
+        get: (name) => name.toLowerCase() === 'x-ratelimit-reset' ? String(resetAt) : null,
+      },
+    });
+
+    const first = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {});
+    expect(first.status).toBe('rate_limited');
+    expect(githubThrottleUntil).toBeGreaterThan(Date.now());
+
+    fetch.mockClear();
+    const second = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {});
+
+    expect(second.status).toBe('rate_limited');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('serializes concurrent GitHub requests through a shared queue', async () => {
+    let releaseFirst;
+    let markFirstStarted;
+    const firstStarted = new Promise((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const repoPayload = () => ({
+      archived: false,
+      pushed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    let callCount = 0;
+
+    fetch.mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) {
+        markFirstStarted();
+        return new Promise((resolve) => {
+          releaseFirst = () => resolve({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            json: async () => repoPayload(),
+          });
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => repoPayload(),
+      });
+    });
+
+    const first = fetchGithubRepoStatus({ owner: 'owner-one', repo: 'repo-one' }, 'ghp_test', {});
+    const second = fetchGithubRepoStatus({ owner: 'owner-two', repo: 'repo-two' }, 'ghp_test', {});
+
+    await firstStarted;
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult.status).toBe(true);
+    expect(secondResult.status).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('skips the Supabase GitHub fallback while a local throttle window is active', async () => {
+    githubThrottleUntil = Date.now() + 60 * 1000;
+
+    const result = await fetchGithubRepoStatusViaSupabase({ owner: 'owner', repo: 'repo' }, {});
+
+    expect(result.status).toBe('rate_limited');
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
