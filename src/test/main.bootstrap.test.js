@@ -85,4 +85,25 @@ describe('main bootstrap reload behavior', () => {
       bypassCache: false,
     });
   });
+
+  test('hides the repo banner when bootstrapping a link page', async () => {
+    global.isReloadNavigation = jest.fn(() => false);
+    global.isRepoUrl = jest.fn(() => false);
+
+    await runBootstrap();
+
+    expect(global.ToggleBanner).toHaveBeenCalledWith(null, false);
+    expect(global.markRepoLinks).toHaveBeenCalled();
+  });
+
+  test('disconnects the link observer when bootstrapping a repo page', async () => {
+    global.isReloadNavigation = jest.fn(() => false);
+    const disconnect = jest.fn();
+    window.__gitpulseLinkObserver = { disconnect };
+
+    await runBootstrap();
+
+    expect(disconnect).toHaveBeenCalled();
+    expect(window.__gitpulseLinkObserver).toBeUndefined();
+  });
 });

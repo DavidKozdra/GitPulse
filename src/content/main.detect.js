@@ -41,6 +41,8 @@ async function waitForGithubRepoIndicators(timeout = 3000) {
   return false;
 }
 
+globalThis.waitForGithubRepoIndicators = waitForGithubRepoIndicators;
+
 function githubRepoPrivateScopes() {
   const selectors = [
     '#repository-container-header',
@@ -82,6 +84,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     looksLikeGithubRepoUrl,
     isGithubRepoPageNow,
+    waitForGithubRepoIndicators,
     githubRepoPrivateScopes,
     isGithubRepoPrivate,
   };

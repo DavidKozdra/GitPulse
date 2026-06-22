@@ -73,7 +73,7 @@ const defaultConfig = {
   },
   marker_display: {
     name: "Link marker display",
-    value: "emoji",
+    value: "both",
     type: "select",
     options: [
       { value: "emoji", label: "Emoji" },
@@ -85,7 +85,7 @@ const defaultConfig = {
   },
   banner_display: {
     name: "Banner display",
-    value: "emoji",
+    value: "both",
     type: "select",
     options: [
       { value: "emoji", label: "Emoji" },

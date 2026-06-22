@@ -62,11 +62,19 @@ async function bootstrap(options = {}) {
   // Merge stored user config over defaults while preserving unknown future keys.
   // This mirrors popup.js/config.js behavior for content-side rendering.
   const mergeConfig = (storedCfg) => {
-    const merged = { ...defaultConfig };
+    // Reuse the shared validator/cloner so content-side config is deep-copied and
+    // sanitized exactly like popup.js, instead of sharing nested references (e.g.
+    // select `options` arrays) with the exported defaultConfig.
+    if (typeof validateConfig === "function") {
+      return validateConfig(storedCfg);
+    }
+    // Fallback: deep-clone defaults before merging so later mutations of `config`
+    // cannot leak back into defaultConfig.
+    const merged = JSON.parse(JSON.stringify(defaultConfig));
     if (storedCfg) {
       Object.keys(storedCfg).forEach((key) => {
         if (merged[key]) merged[key] = { ...merged[key], ...storedCfg[key] };
-        else merged[key] = storedCfg[key];
+        else merged[key] = JSON.parse(JSON.stringify(storedCfg[key]));
       });
     }
     return merged;
@@ -89,10 +97,17 @@ async function bootstrap(options = {}) {
     }
   }
 
-  // Cleanup any previous injected marks or banners before re-injecting
-  document.querySelectorAll(".repo-checker-banner, .repo-checker-mark").forEach(el => el.remove());
+  // Cleanup any previous injected link marks before re-injecting. The banner is
+  // a persistent shell managed by ToggleBanner; hide it explicitly on link pages
+  // instead of removing it from the DOM.
+  document.querySelectorAll(".repo-checker-mark").forEach(el => el.remove());
 
   if (onRepoPage) {
+    if (window.__gitpulseLinkObserver) {
+      try { window.__gitpulseLinkObserver.disconnect(); } catch { /* ignore */ }
+      delete window.__gitpulseLinkObserver;
+    }
+
     // Show banner for repo pages
     if (isGithubRepoPrivate()) {
       ToggleBanner("private", true, { host: "github.com" });
@@ -110,6 +125,8 @@ async function bootstrap(options = {}) {
       });
     }
   } else {
+    ToggleBanner(null, false);
+
     // Mark repo links on search/discovery pages
     await markRepoLinks();
 

@@ -172,6 +172,24 @@ describe('dedupeLinks', () => {
     expect(map.get('github.com/octocat/Hello-World')[0].textContent).toBe('Hello-World');
   });
 
+  test('keeps npm package canonical URLs valid for background routing', () => {
+    const link = document.createElement('a');
+    link.href = 'https://www.npmjs.com/package/express';
+
+    const map = dedupeLinks([link]);
+
+    expect(map.has('www.npmjs.com/package/express')).toBe(true);
+  });
+
+  test('keeps nested GitLab project paths before the subpage marker', () => {
+    const link = document.createElement('a');
+    link.href = 'https://gitlab.com/group/subgroup/project/-/issues';
+
+    const map = dedupeLinks([link]);
+
+    expect(map.has('gitlab.com/group/subgroup/project')).toBe(true);
+  });
+
   test('skips non-repo URLs', () => {
     const link = document.createElement('a');
     link.href = 'https://example.com/not/a/repo';
@@ -272,6 +290,20 @@ describe('setOrRemoveLinkMark', () => {
     global.config.grading_enabled.value = false;
   });
 
+  test('does not render a grade badge in emoji-only marker mode', () => {
+    global.config.grading_enabled.value = true;
+    global.config.marker_display.value = 'emoji';
+    const link = document.createElement('a');
+    link.textContent = 'Hello World';
+
+    setOrRemoveLinkMark(link, true, { score: 95, grade: 'A' }, { score: 95, grade: 'A' });
+
+    expect(link.querySelector('.gitpulse-grade-badge')).toBeNull();
+    expect(link.querySelector('.repo-checker-mark').textContent).toContain('✅');
+
+    global.config.grading_enabled.value = false;
+  });
+
   test('keeps grade badge when status emoji is disabled', () => {
     global.config.grading_enabled.value = true;
     global.config.marker_display.value = 'badge';
@@ -290,6 +322,26 @@ describe('setOrRemoveLinkMark', () => {
     expect(badge).not.toBeNull();
 
     global.config.emoji_active = origActive;
+    global.config.marker_display.value = 'emoji';
+    global.config.grading_enabled.value = false;
+  });
+
+  test('refreshAllLinkMarks preserves score and grade stored outside details', () => {
+    global.config.grading_enabled.value = true;
+    global.config.marker_display.value = 'badge';
+    const link = document.createElement('a');
+    link.textContent = 'Hello World';
+    document.body.appendChild(link);
+
+    setOrRemoveLinkMark(link, true, {}, { score: 95, grade: 'A' });
+    link.querySelector('.gitpulse-grade-badge').remove();
+
+    refreshAllLinkMarks();
+
+    const badge = link.querySelector('.gitpulse-grade-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe('Grade A');
+
     global.config.marker_display.value = 'emoji';
     global.config.grading_enabled.value = false;
   });

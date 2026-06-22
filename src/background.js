@@ -10,7 +10,7 @@ console.log("GitPulse SW started", chrome.runtime?.id);
 // Constants & helpers
 // ---------------------------
 const CACHE_PREFIX = "repoCache:";
-const CACHE_SCHEMA_VERSION = 4;
+const CACHE_SCHEMA_VERSION = 5;
 // Normal status entries live for one day. That keeps browsing fast while still
 // allowing repository activity to become visible without a manual cache clear.
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
@@ -20,6 +20,10 @@ const RATE_TTL_MS = 1000 * 60 * 60 * 2;
 const GITHUB_THROTTLE_FALLBACK_MS = 1000 * 60 * 15;
 const CONFIG_KEY = "repoCheckerConfig";   // unify on the same key used by popup.js
 const inFlightRepoStatusRequests = new Map();
+// Force-refresh requests bypass the cache and the normal in-flight set, but
+// concurrent force refreshes for the same URL (e.g. mashing the banner refresh
+// button) should still collapse into a single network fetch.
+const inFlightForceRefreshRequests = new Map();
 let githubThrottleUntil = 0;
 let githubRequestQueue = Promise.resolve();
 
@@ -43,16 +47,24 @@ const now = () => Date.now();
 // concrete timestamp that is older than the configured threshold.
 const withinDays = (dateStr, maxDays) => {
   if (!dateStr || !Number.isFinite(maxDays)) return true;
-  const last = new Date(dateStr);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - maxDays);
-  return last >= cutoff;
+  // Use exact elapsed-milliseconds math (same definition as daysSince/
+  // recencyScore) so the binary activity check and the graded score never
+  // disagree about whether a date is within the threshold.
+  const age = daysSince(dateStr);
+  if (age === null) return true;
+  return age <= maxDays;
 };
 const isString = (x) => typeof x === "string";
 const isPlainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 const DEFAULT_MAX_ACTIVITY_DAYS = 365;
 const DEFAULT_MIN_ACTIVE_SCORE = 70;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const DEFAULT_ACTIVE_RULES = {
+  max_repo_update_time: 180,
+  grading_enabled: true,
+  score_decides_status: true,
+  min_active_score: DEFAULT_MIN_ACTIVE_SCORE,
+};
 
 function clampScore(value) {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -81,20 +93,32 @@ function recencyScore(dateStr, maxDays, missingScore = 0) {
   if (ageDays === null) return clampScore(missingScore);
   if (!Number.isFinite(maxDays)) return 100;
   if (maxDays <= 0) return ageDays <= 0 ? 100 : 0;
-  // Repos remain fully healthy through the configured threshold, then decay
-  // linearly to zero over the next threshold window.
-  if (ageDays <= maxDays) return 100;
-  if (ageDays >= maxDays * 2) return 0;
-  return clampScore(100 * (1 - ((ageDays - maxDays) / maxDays)));
+  // Grading should communicate "how healthy" a repo is, not just whether it is
+  // inside the configured cutoff. Keep the cutoff itself at the active boundary
+  // score (70), then use a longer tail so stale-but-not-abandoned projects can
+  // show as D before eventually becoming F.
+  if (ageDays <= maxDays) {
+    return clampScore(100 - (30 * (ageDays / maxDays)));
+  }
+  if (ageDays <= maxDays * 3) {
+    return clampScore(70 - (10 * ((ageDays - maxDays) / (maxDays * 2))));
+  }
+  if (ageDays >= maxDays * 6) return 0;
+  return clampScore(60 * (1 - ((ageDays - (maxDays * 3)) / (maxDays * 3))));
 }
 
 function maxCountScore(count, maxCount, missingScore = 0) {
   if (!Number.isFinite(count)) return clampScore(missingScore);
   if (!Number.isFinite(maxCount)) return 100;
   if (maxCount <= 0) return count <= 0 ? 100 : 0;
-  if (count <= maxCount) return 100;
-  if (count >= maxCount * 2) return 0;
-  return clampScore(100 * (1 - ((count - maxCount) / maxCount)));
+  if (count <= maxCount) {
+    return clampScore(100 - (30 * (count / maxCount)));
+  }
+  if (count <= maxCount * 3) {
+    return clampScore(70 - (10 * ((count - maxCount) / (maxCount * 2))));
+  }
+  if (count >= maxCount * 6) return 0;
+  return clampScore(60 * (1 - ((count - (maxCount * 3)) / (maxCount * 3))));
 }
 
 function scorePart(key, label, score, weight) {
@@ -537,7 +561,6 @@ async function smartClearCache(oldConfig, newConfig) {
   for (const key of keys) {
     if (
       key.startsWith("emoji_") ||
-      key === "grading_enabled" ||
       key === "marker_display" ||
       key === "banner_display"
     ) continue;
@@ -566,10 +589,24 @@ async function smartClearCache(oldConfig, newConfig) {
 // this compact rules shape instead of the popup's richer form-field metadata.
 async function loadActiveRules() {
   const { [CONFIG_KEY]: cfg } = await getLocal([CONFIG_KEY]);
-  if (!cfg) return {};
-  return Object.entries(cfg)
-    .filter(([, f]) => f && f.active && f.value !== undefined)
-    .reduce((acc, [k, f]) => { acc[k] = f.value; return acc; }, {});
+  if (!isPlainObject(cfg)) return { ...DEFAULT_ACTIVE_RULES };
+
+  const rules = {};
+  Object.entries(DEFAULT_ACTIVE_RULES).forEach(([key, value]) => {
+    const storedField = cfg[key];
+    if (storedField === undefined) {
+      rules[key] = value;
+    } else if (storedField && storedField.active && storedField.value !== undefined) {
+      rules[key] = storedField.value;
+    }
+  });
+
+  Object.entries(cfg).forEach(([key, field]) => {
+    if (Object.prototype.hasOwnProperty.call(DEFAULT_ACTIVE_RULES, key)) return;
+    if (field && field.active && field.value !== undefined) rules[key] = field.value;
+  });
+
+  return rules;
 }
 
 // Cache helpers store host+path entries under a versioned schema. Bumping
@@ -738,10 +775,10 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
     if (!relRes.ok && relRes.status !== 404) throw new Error(`GitHub releases failed: ${relRes.status}`);
     if (relRes.ok) {
       const rel = rels?.[0];
-      lastReleaseAt = rel?.published_at || rel?.created_at;
+      lastReleaseAt = rel?.published_at || rel?.created_at || null;
     }
-    // If no releases, consider not OK only if rule is active
-    releaseOk = withinDays(lastReleaseAt, rules.max_days_since_last_release);
+    // If this optional rule is active, no releases is a failing signal.
+    releaseOk = !!lastReleaseAt && withinDays(lastReleaseAt, rules.max_days_since_last_release);
   }
 
   // 7) Oldest open issue age. A stale oldest issue is a weak maintenance signal,
@@ -912,16 +949,30 @@ async function fetchPypiProjectStatus({ project }, rules) {
   }
   if (!response.ok) throw new Error(`PyPI API failed: ${response.status}`);
 
+  // Track the newest upload across every release so the reported version matches
+  // the activity date. info.version can lag behind the most recent upload (e.g. a
+  // post-release or a yanked file), which would otherwise make the tooltip's
+  // "Latest x.y.z" disagree with the displayed last-activity date.
   const releaseDates = [];
-  Object.values(data.releases || {}).forEach((files) => {
+  let newestVersion = null;
+  let newestVersionTime = -Infinity;
+  Object.entries(data.releases || {}).forEach(([version, files]) => {
     if (!Array.isArray(files)) return;
-    files.forEach((file) => releaseDates.push(file.upload_time_iso_8601 || file.upload_time));
+    files.forEach((file) => {
+      const stamp = file.upload_time_iso_8601 || file.upload_time;
+      releaseDates.push(stamp);
+      const time = stamp ? new Date(stamp).getTime() : NaN;
+      if (Number.isFinite(time) && time > newestVersionTime) {
+        newestVersionTime = time;
+        newestVersion = version;
+      }
+    });
   });
 
   return activityStatus({
     host: "pypi.org",
     updatedAt: maxIsoDate(releaseDates),
-    details: { project, latestVersion: data?.info?.version || null },
+    details: { project, latestVersion: newestVersion || data?.info?.version || null },
   }, rules);
 }
 
@@ -1011,7 +1062,16 @@ async function fetchLaunchpadStatus({ project }, rules) {
   }, rules);
 }
 
-// Supabase config for unauthenticated GitHub status checks
+// Supabase config for unauthenticated GitHub status checks.
+//
+// SECURITY NOTE: SUPABASE_ANON_KEY is the project's *anonymous* publishable key.
+// Like a Firebase web config, it is intended to be shipped in client code — it
+// grants no privileges beyond what Row Level Security and the edge function
+// itself allow, so this is NOT a leaked secret and can be safely committed.
+// Because it is public, the edge function (quick-responder) is the only place
+// abuse can be controlled: it MUST enforce its own per-IP/origin rate limiting
+// so a third party cannot drain this project's GitHub quota or Supabase billing.
+// The service-role key must never appear here.
 const SUPABASE_GITHUB_STATUS_URL =
   "https://wmzfmdgkixsgmhmzpwlq.supabase.co/functions/v1/quick-responder";
 
@@ -1179,21 +1239,25 @@ async function handleMessage(message, sender, sendResponse) {
       }
 
       case "open-url": {
-        const tabs = await new Promise((resolve) => {
-          try {
-            chrome.tabs.query({ active: true, currentWindow: true }, (t) => {
-              const _ = chrome.runtime?.lastError;
-              resolve(Array.isArray(t) ? t : []);
-            });
-          } catch (e) {
-            resolve([]);
-          }
-        });
-        if (!tabs?.length || !tabs[0]?.url) {
-          sendResponse({ ok: false, error: "No active tab URL available" });
+        // Open the requested URL in a new tab. Only http(s) URLs are allowed so a
+        // page script cannot trick the worker into opening privileged schemes
+        // (chrome:, file:, javascript:, etc.).
+        let target;
+        try {
+          target = new URL(String(message.url || ""));
+        } catch {
+          sendResponse({ ok: false, error: "Invalid url" });
           return;
         }
-        sendResponse({ ok: true });
+        if (target.protocol !== "https:" && target.protocol !== "http:") {
+          sendResponse({ ok: false, error: "Unsupported url scheme" });
+          return;
+        }
+        chrome.tabs.create({ url: target.href, active: true }, () => {
+          const err = chrome.runtime?.lastError;
+          if (err) sendResponse({ ok: false, error: String(err.message || err) });
+          else sendResponse({ ok: true });
+        });
         return;
       }
 
@@ -1258,7 +1322,7 @@ async function handleMessage(message, sender, sendResponse) {
                 if (err) {
                   // If popup windows are blocked, fall back to a normal tab.
                   chrome.tabs.create({ url, active: true }, () => {
-                    const _ = chrome.runtime.lastError;
+                    void chrome.runtime.lastError;
                     sendResponse({ ok: true });
                   });
                   return;
@@ -1268,7 +1332,7 @@ async function handleMessage(message, sender, sendResponse) {
             );
           } catch {
             chrome.tabs.create({ url, active: true }, () => {
-              const _ = chrome.runtime.lastError;
+              void chrome.runtime.lastError;
               sendResponse({ ok: true });
             });
           }
@@ -1333,7 +1397,11 @@ async function handleMessage(message, sender, sendResponse) {
           return;
         }
 
-        const inFlight = forceRefresh ? null : inFlightRepoStatusRequests.get(cacheKey);
+        // De-dupe concurrent identical requests. Force refreshes use their own
+        // map so they collapse with each other but never reuse (or get reused
+        // by) a possibly-stale normal request.
+        const inFlightMap = forceRefresh ? inFlightForceRefreshRequests : inFlightRepoStatusRequests;
+        const inFlight = inFlightMap.get(cacheKey);
         if (inFlight) {
           sendResponse({ ok: true, result: await inFlight, fromCache: false });
           return;
@@ -1361,16 +1429,14 @@ async function handleMessage(message, sender, sendResponse) {
           }
         })();
 
-        if (!forceRefresh) {
-          inFlightRepoStatusRequests.set(cacheKey, requestPromise);
-        }
+        inFlightMap.set(cacheKey, requestPromise);
 
         try {
           const result = await requestPromise;
           sendResponse({ ok: true, result, fromCache: false });
         } finally {
-          if (!forceRefresh && inFlightRepoStatusRequests.get(cacheKey) === requestPromise) {
-            inFlightRepoStatusRequests.delete(cacheKey);
+          if (inFlightMap.get(cacheKey) === requestPromise) {
+            inFlightMap.delete(cacheKey);
           }
         }
         return;

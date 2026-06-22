@@ -170,6 +170,15 @@ describe('smartClearCache', () => {
     expect(storage['repoCache:x']).toBeDefined();
   });
 
+  test('clears cache when grading is enabled because GitHub signal breadth changes', async () => {
+    storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
+    const oldCfg = { grading_enabled: { active: true, value: false } };
+    const newCfg = { grading_enabled: { active: true, value: true } };
+    const result = await smartClearCache(oldCfg, newCfg);
+    expect(result.cleared).toBe(true);
+    expect(storage['repoCache:x']).toBeUndefined();
+  });
+
   test('falls back to full clear when oldConfig is null', async () => {
     storage['repoCache:x'] = { isActive: true, checkedAt: Date.now(), v: CACHE_SCHEMA_VERSION };
     await smartClearCache(null, {});
@@ -321,6 +330,32 @@ describe('fetchRepoStatus cache behavior', () => {
       result: expect.objectContaining({
         status: true,
         details: expect.objectContaining({ host: 'npmjs.com', packageName: 'express', latestVersion: '1.2.3' }),
+      }),
+    }));
+  });
+
+  test('uses default 180-day activity threshold before config has been saved', async () => {
+    const twoHundredDaysAgo = new Date(Date.now() - (200 * 24 * 60 * 60 * 1000)).toISOString();
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        archived: false,
+        updated_at: twoHundredDaysAgo,
+      }),
+    });
+    const sendResponse = jest.fn();
+
+    await handleMessage(
+      { action: 'fetchRepoStatus', url: 'https://codeberg.org/owner/repo' },
+      {},
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      result: expect.objectContaining({
+        details: expect.objectContaining({ pushOk: false }),
       }),
     }));
   });
@@ -539,6 +574,38 @@ describe('score grading', () => {
     expect(result.grade).toBe('A');
   });
 
+  test('grades activity recency across A/B/C/D instead of only extremes', () => {
+    const daysAgo = (days) => new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    const scoreForAge = (days) => attachScore({
+      status: true,
+      details: {
+        host: 'github.com',
+        updated_at: daysAgo(days),
+      },
+    }, { max_repo_update_time: 100 });
+
+    expect(scoreForAge(0).grade).toBe('A');
+    expect(scoreForAge(50).grade).toBe('B');
+    expect(scoreForAge(90).grade).toBe('C');
+    expect(scoreForAge(180).grade).toBe('D');
+    expect(scoreForAge(400).grade).toBe('F');
+  });
+
+  test('grades count-based signals progressively before and after the limit', () => {
+    const scoreForOpenPrs = (openPrCount) => attachScore({
+      status: true,
+      details: {
+        host: 'github.com',
+        openPrCount,
+      },
+    }, { open_prs_max: 20 });
+
+    expect(scoreForOpenPrs(0).grade).toBe('A');
+    expect(scoreForOpenPrs(10).grade).toBe('B');
+    expect(scoreForOpenPrs(20).grade).toBe('C');
+    expect(scoreForOpenPrs(23).grade).toBe('D');
+  });
+
   test('derives grade from provided string score instead of trusting adapter grade', () => {
     const result = attachScore({
       status: true,
@@ -617,18 +684,18 @@ describe('score grading', () => {
     });
 
     expect(result.status).toBe(false);
-    expect(result.score).toBeGreaterThanOrEqual(80);
-    expect(result.grade).toMatch(/[AB]/);
+    expect(result.score).toBeGreaterThanOrEqual(70);
+    expect(result.grade).toBe('C');
   });
 
   test('can use score to decide active status', async () => {
-    const justPastThreshold = new Date(Date.now() - (400 * 24 * 60 * 60 * 1000)).toISOString();
+    const nearThreshold = new Date(Date.now() - (300 * 24 * 60 * 60 * 1000)).toISOString();
     fetch.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
         archived: false,
-        updated_at: justPastThreshold,
+        updated_at: nearThreshold,
       }),
     });
 
@@ -639,7 +706,7 @@ describe('score grading', () => {
     });
 
     expect(result.status).toBe(true);
-    expect(result.score).toBeGreaterThanOrEqual(80);
+    expect(result.grade).toBe('C');
     expect(result.details.scoreDecidesStatus).toBe(true);
   });
 
@@ -723,6 +790,36 @@ describe('score grading', () => {
     expect(result.status).toBe(false);
     expect(result.score).toBe(0);
     expect(result.grade).toBe('F');
+  });
+
+  test('fails the release rule when no releases exist', async () => {
+    const now = new Date().toISOString();
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({
+          archived: false,
+          pushed_at: now,
+          updated_at: now,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ([]),
+      });
+
+    const result = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {
+      max_repo_update_time: 365,
+      max_days_since_last_release: 365,
+    });
+
+    expect(result.status).toBe(false);
+    expect(result.details.releaseOk).toBe(false);
+    expect(result.details.lastReleaseAt).toBeNull();
   });
 });
 

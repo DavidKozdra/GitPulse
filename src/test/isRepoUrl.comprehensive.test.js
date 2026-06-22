@@ -61,6 +61,10 @@ describe('isRepoUrl comprehensive tests', () => {
     test('recognizes tilde-prefixed user repos', () => {
       expect(isRepoUrl('https://git.sr.ht/~user/repo')).toBe(true);
     });
+
+    test('rejects tilde-prefixed user pages without a repo', () => {
+      expect(isRepoUrl('https://git.sr.ht/~user')).toBe(false);
+    });
   });
 
   describe('Package registries', () => {

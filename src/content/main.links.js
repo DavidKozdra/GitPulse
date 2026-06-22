@@ -103,6 +103,11 @@ function readStoredDetails(link) {
   }
 }
 
+function finiteLinkNumber(value) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
   // This is the only function that mutates a link. It records status/details for
   // future refreshes, creates or updates the marker span, and removes it when
@@ -117,6 +122,20 @@ function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
     } catch {
       // ignore
     }
+  }
+  const storedScore = finiteLinkNumber(meta.score ?? details?.score);
+  if (storedScore !== null) {
+    link.setAttribute("data-gitpulse-score", String(storedScore));
+  } else {
+    link.removeAttribute("data-gitpulse-score");
+  }
+  const storedGrade = typeof meta.grade === "string"
+    ? meta.grade
+    : (typeof details?.grade === "string" ? details.grade : "");
+  if (storedGrade) {
+    link.setAttribute("data-gitpulse-grade", storedGrade);
+  } else {
+    link.removeAttribute("data-gitpulse-grade");
   }
 
   const showEmoji = typeof window.__gp?.emojiDisplayEnabled === "function"
@@ -170,58 +189,99 @@ function setOrRemoveLinkMark(link, status, details = {}, meta = {}) {
 // Simple concurrency pool for promises. Pages such as search results can expose
 // many repo links at once, so this prevents a burst of background messages and
 // host API requests from running at unlimited parallelism.
+//
+// A failing task must not reject the whole pool: markRepoLinks runs this from a
+// debounced timer with nothing to catch a rejection, which would surface as an
+// unhandled promise rejection. Results are written by index so ordering is
+// preserved regardless of completion order, and a thrown task records its error
+// instead of aborting the batch.
 async function runWithConcurrency(tasks, concurrency = 6) {
-  const results = [];
-  const pool = [];
-  for (const task of tasks) {
-    const p = Promise.resolve().then(task);
-    results.push(p);
-    pool.push(p);
-    const onFinish = () => pool.splice(pool.indexOf(p), 1);
-    p.then(onFinish, onFinish);
-    if (pool.length >= concurrency) await Promise.race(pool);
+  const list = Array.from(tasks);
+  const results = new Array(list.length);
+  const limit = Math.max(1, concurrency);
+  let next = 0;
+
+  async function worker() {
+    while (next < list.length) {
+      const index = next++;
+      try {
+        results[index] = await list[index]();
+      } catch (err) {
+        results[index] = undefined;
+        console.warn("[link-check] task failed", err);
+      }
+    }
   }
-  return Promise.all(results);
+
+  const workers = [];
+  for (let i = 0; i < Math.min(limit, list.length); i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
 }
 
 function repoRootKey(hostname, parts) {
   // Return the canonical "owner/repo" root key for a given host so that
   // sub-pages of the same repo (e.g. /issues, /pulls, /tree/main/…) share one
   // status lookup instead of triggering duplicate grades.
+  //
+  // Callers pass paths that already passed isRepoUrl, but indexing into `parts`
+  // defensively keeps a single malformed link from throwing and dropping the
+  // whole batch. Returning null signals "not a usable repo root" to the caller.
   switch (hostname) {
     case "github.com":
-    case "gitlab.com":
     case "codeberg.org":
     case "bitbucket.org":
+      if (parts.length < 2) return null;
       return hostname + "/" + parts.slice(0, 2).join("/");
+
+    case "gitlab.com": {
+      // GitLab supports nested groups (group/subgroup/repo). The full project
+      // path is everything before the /-/ marker that prefixes subpages such as
+      // /-/issues, mirroring the background adapter's routing.
+      const markerIndex = parts.indexOf("-");
+      const projectParts = markerIndex === -1 ? parts : parts.slice(0, markerIndex);
+      if (projectParts.length < 2) return null;
+      return hostname + "/" + projectParts.join("/");
+    }
 
     case "git.sr.ht":
       // Sourcehut: /~user/repo — root is always first two parts
+      if (parts.length < 2) return null;
       return hostname + "/" + parts.slice(0, 2).join("/");
 
     case "launchpad.net":
+      if (parts.length < 1) return null;
       return hostname + "/" + parts[0];
 
     case "www.npmjs.com":
     case "npmjs.com":
       // /package/name or /package/@scope/name
-      return hostname + "/" + (parts[1].startsWith("@") ? parts.slice(1, 3).join("/") : parts[1]);
+      if (parts.length < 2) return null;
+      return hostname + "/package/" + (parts[1].startsWith("@")
+        ? parts.slice(1, 3).join("/")
+        : parts[1]);
 
     case "hub.docker.com":
       // /r/org/repo
+      if (parts.length < 3) return null;
       return hostname + "/r/" + parts.slice(1, 3).join("/");
 
     case "pypi.org":
+      if (parts.length < 2) return null;
       return hostname + "/project/" + parts[1];
 
     case "crates.io":
+      if (parts.length < 2) return null;
       return hostname + "/crates/" + parts[1];
 
     case "packagist.org":
+      if (parts.length < 3) return null;
       return hostname + "/packages/" + parts.slice(1, 3).join("/");
 
     default:
-      return hostname + "/" + parts.slice(0, 2).join("/");
+      return parts.length >= 2 ? hostname + "/" + parts.slice(0, 2).join("/") : null;
   }
 }
 
@@ -275,6 +335,7 @@ function dedupeLinks(links) {
       const u = new URL(href);
       const parts = u.pathname.split("/").filter(Boolean);
       const key = repoRootKey(u.hostname, parts);
+      if (!key) continue;
       if (!map.has(key)) {
         map.set(key, [el]);
       } else {
@@ -359,7 +420,13 @@ function refreshAllLinkMarks() {
   for (const link of links) {
     const status = parseStatus(link.getAttribute(LINK_STATUS_ATTR));
     if (status === null) continue;
-    setOrRemoveLinkMark(link, status, readStoredDetails(link));
+    const details = readStoredDetails(link);
+    const score = finiteLinkNumber(link.getAttribute("data-gitpulse-score"));
+    const grade = link.getAttribute("data-gitpulse-grade") || undefined;
+    setOrRemoveLinkMark(link, status, details, {
+      ...(score !== null ? { score } : {}),
+      ...(grade ? { grade } : {}),
+    });
   }
 }
 
@@ -377,22 +444,30 @@ async function markRepoLinks() {
   if (__debounceTimer) clearTimeout(__debounceTimer);
   __debounceTimer = setTimeout(async () => {
     __debounceTimer = null;
-    // collect links in document and same-origin iframes
-    const allLinks = Array.from(document.querySelectorAll('a'));
-    // include same-origin iframe links
-    const iframes = Array.from(document.querySelectorAll('iframe'));
-    for (const iframe of iframes) {
-      try {
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-        if (iframeDoc) allLinks.push(...Array.from(iframeDoc.querySelectorAll('a')));
-      } catch {
-        // cross-origin
+    // This callback is fire-and-forget (the setTimeout result is not awaited),
+    // so any rejection here would be an unhandled promise rejection. Guard the
+    // whole scan even though the inner helpers already swallow per-task errors.
+    try {
+      // collect links in document and same-origin iframes
+      const allLinks = Array.from(document.querySelectorAll('a'));
+      // include same-origin iframe links
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      for (const iframe of iframes) {
+        try {
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+          if (iframeDoc) allLinks.push(...Array.from(iframeDoc.querySelectorAll('a')));
+        } catch {
+          // cross-origin
+        }
       }
-    }
 
-    const map = dedupeLinks(allLinks);
-    if (!map.size) return;
-    await processUniqueUrls(map);
+      const map = dedupeLinks(allLinks);
+      if (!map.size) return;
+      await processUniqueUrls(map);
+    } catch (err) {
+      console.warn("[link-check] markRepoLinks failed", err);
+    }
   }, DEBOUNCE_MS);
 }
 
+globalThis.markRepoLinks = markRepoLinks;

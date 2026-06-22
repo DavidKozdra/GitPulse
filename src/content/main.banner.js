@@ -156,10 +156,13 @@ function ToggleBanner(status, Toggle, details = {}, meta = {}) {
   const isActive = status === true;
   const isInactive = status === false;
 
-  // EXPECTS an existing banner element in the HTML
-  const banner = document.getElementById("my-banner");
+  // Recreate the banner if the host page wiped it. SPA frameworks (e.g. Nuxt on
+  // frame.work) replace document.body's contents on client-side navigation,
+  // destroying the banner injected at module load. ensureBannerExists is
+  // idempotent, so this is a cheap lookup when the banner is already attached.
+  const banner = ensureBannerExists();
   if (!banner) {
-    console.error("Banner element #my-banner not found in DOM.");
+    console.error("Banner element #my-banner could not be created in DOM.");
     return;
   }
   const mainText = banner.querySelector(".banner-main-text");

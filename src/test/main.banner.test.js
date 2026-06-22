@@ -131,6 +131,22 @@ describe('ToggleBanner', () => {
     expect(banner.style.display).toBe('none');
   });
 
+  test('recreates the banner if a SPA wiped it from the DOM', () => {
+    // SPA frameworks (e.g. Nuxt on frame.work) replace document.body's children
+    // on client-side navigation, destroying the injected banner. A subsequent
+    // ToggleBanner call (from bootstrap on the URL change) must self-heal rather
+    // than error with "#my-banner not found in DOM."
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    document.body.innerHTML = '';
+    expect(document.getElementById('my-banner')).toBeNull();
+
+    ToggleBanner(null, false);
+
+    expect(document.getElementById('my-banner')).not.toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   test('stores status in dataset for refresh', () => {
     ToggleBanner(true, true);
     const banner = document.getElementById('my-banner');
@@ -178,6 +194,18 @@ describe('ToggleBanner', () => {
     expect(mainText.style.backgroundColor).toMatch(/(#43a047|rgb\(67, 160, 71\))/);
 
     global.config.banner_display.value = 'emoji';
+    global.config.grading_enabled.value = false;
+  });
+
+  test('does not show a grade badge in emoji-only banner mode', () => {
+    global.config.grading_enabled.value = true;
+    global.config.banner_display.value = 'emoji';
+
+    ToggleBanner(true, true, { score: 82, grade: 'B' }, { score: 82, grade: 'B' });
+
+    expect(document.querySelector('.gitpulse-grade-badge')).toBeNull();
+    expect(document.querySelector('.banner-main-text').textContent).toContain('✅');
+
     global.config.grading_enabled.value = false;
   });
 });

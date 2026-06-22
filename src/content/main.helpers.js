@@ -4,7 +4,6 @@
 // These helpers intentionally avoid direct Chrome APIs except through `ext`.
 // That keeps them testable in Jest and keeps browser differences isolated in
 // compat.js.
-var rate_limited = false;
 
 const STATUS_LABELS = {
   true: "Active repository",
@@ -38,7 +37,8 @@ function emojiDisplayEnabled(surface = "marker") {
 }
 
 function gradeDisplayEnabled(surface = "marker") {
-  return isGradingEnabled();
+  const mode = displayMode(surface);
+  return isGradingEnabled() && (mode === "badge" || mode === "both");
 }
 
 function gradeForScore(score) {
@@ -331,12 +331,15 @@ async function setCacheInBackground(key, value) {
   return ext.sendMessage({ action: "setCache", key, value });
 }
 
+globalThis.getCacheFromBackground = getCacheFromBackground;
+globalThis.setCacheInBackground = setCacheInBackground;
+
 function getActiveConfigMetrics() {
   // Flatten active config fields into a simple key/value object. Background.js
   // performs the authoritative read, but this is useful for content-side tests
   // and debugging.
   return Object.entries(config)
-    .filter(([key, field]) => field.active && field.value !== undefined)
+    .filter(([, field]) => field.active && field.value !== undefined)
     .reduce((acc, [key, field]) => {
       acc[key] = field.value;
       return acc;
@@ -380,7 +383,7 @@ function isRepoUrl(url) {
 
       case "git.sr.ht":
         // Sourcehut: /~user/repo or /user/repo
-        return (parts.length >= 2 || (parts.length >= 1 && parts[0].startsWith("~")));
+        return parts.length >= 2;
 
       case "launchpad.net":
         // /project or /project/series

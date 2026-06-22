@@ -31,7 +31,8 @@ describe('validateConfig', () => {
     expect(result.emoji_active.value).toBe('✅');
     expect(result.grading_enabled.value).toBe(true);
     expect(result.min_active_score.value).toBe(70);
-    expect(result.marker_display.value).toBe('emoji');
+    expect(result.marker_display.value).toBe('both');
+    expect(result.banner_display.value).toBe('both');
   });
 
   test('returns defaultConfig when given non-object', () => {
@@ -132,7 +133,7 @@ describe('validateConfig', () => {
       marker_display: { value: 'anything', active: true },
     };
     const result = validateConfig(stored);
-    expect(result.marker_display.value).toBe('emoji');
+    expect(result.marker_display.value).toBe('both');
   });
 
   test('preserves extra keys for forward compatibility', () => {
