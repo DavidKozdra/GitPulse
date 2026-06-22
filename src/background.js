@@ -1406,3 +1406,39 @@ chrome.runtime.onMessageExternal.addListener((m, s, r) => {
   handleMessage(m, s, r);
   return true; // keep channel open for async sendResponse
 });
+
+// CommonJS is only present in Jest. Exporting helpers lets tests execute this
+// file unchanged instead of rewriting declarations and evaluating altered code.
+/* istanbul ignore next */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    CACHE_SCHEMA_VERSION,
+    withinDays,
+    readCache,
+    writeCache,
+    clearCache,
+    smartClearCache,
+    handleMessage,
+    fetchRepoStatusByUrl,
+    fetchGithubRepoStatus,
+    fetchGithubRepoStatusViaSupabase,
+    calculateRepoScore,
+    attachScore,
+    gradeForScore,
+    clampScore,
+    validateSegment,
+    validatePackageName,
+    __test: {
+      resetGithubState() {
+        githubThrottleUntil = 0;
+        githubRequestQueue = Promise.resolve();
+      },
+      setGithubThrottleUntil(value) {
+        githubThrottleUntil = value;
+      },
+      getGithubThrottleUntil() {
+        return githubThrottleUntil;
+      },
+    },
+  };
+}

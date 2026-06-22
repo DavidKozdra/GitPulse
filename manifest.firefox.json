@@ -28,39 +28,39 @@
                                                 "\u003call_urls\u003e"
                                             ],
                                 "js":  [
-                                           "GitPulse/src/compat.js",
-                                           "GitPulse/src/config.js",
-                                           "GitPulse/src/content/main.helpers.js",
-                                           "GitPulse/src/content/main.banner.js",
-                                           "GitPulse/src/content/main.links.js",
-                                           "GitPulse/src/content/main.detect.js",
-                                           "GitPulse/src/content/main.bootstrap.js",
-                                           "GitPulse/src/main.js"
+                                           "src/compat.js",
+                                           "src/config.js",
+                                           "src/content/main.helpers.js",
+                                           "src/content/main.banner.js",
+                                           "src/content/main.links.js",
+                                           "src/content/main.detect.js",
+                                           "src/content/main.bootstrap.js",
+                                           "src/main.js"
                                        ],
                                 "run_at":  "document_idle"
                             }
                         ],
     "background":  {
                        "scripts":  [
-                                       "GitPulse/src/background.js"
+                                       "src/background.js"
                                    ]
                    },
     "browser_action":  {
-                           "default_popup":  "GitPulse/src/popup.html",
+                           "default_popup":  "src/popup.html",
                            "default_icon":  {
-                                                "16":  "GitPulse/src/icons/icon-16.png",
-                                                "32":  "GitPulse/src/icons/icon-32.png",
-                                                "48":  "GitPulse/src/icons/icon-48.png",
-                                                "128":  "GitPulse/src/icons/icon-128.png"
+                                                "16":  "src/icon.png",
+                                                "32":  "src/icon.png",
+                                                "48":  "src/icon.png",
+                                                "128":  "src/icon.png"
                                             }
                        },
     "icons":  {
-                  "16":  "GitPulse/src/icons/icon-16.png",
-                  "32":  "GitPulse/src/icons/icon-32.png",
-                  "48":  "GitPulse/src/icons/icon-48.png",
-                  "128":  "GitPulse/src/icons/icon-128.png"
+                  "16":  "src/icon.png",
+                  "32":  "src/icon.png",
+                  "48":  "src/icon.png",
+                  "128":  "src/icon.png"
               },
-    "web_accessible_resources": ["GitPulse/src/icon.png"],
+    "web_accessible_resources": ["src/icon.png"],
     "browser_specific_settings":  {
                                       "gecko":  {
                                                     "id":  "gitpulse@example.com",

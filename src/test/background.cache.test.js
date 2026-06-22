@@ -5,8 +5,6 @@
 // real cache, message-handler, URL routing, and validation functions without a
 // browser extension runtime.
 
-const fs = require('fs');
-
 // Mock chrome APIs with working storage. The storage object intentionally acts
 // like chrome.storage.local: get/set/remove are callback-based, support null
 // reads for "all keys", and preserve non-cache keys during clearCache tests.
@@ -47,18 +45,26 @@ const mockChrome = {
 global.chrome = mockChrome;
 global.fetch = jest.fn();
 
-// Load background.js. Replacing top-level const/let with var makes declarations
-// visible to eval's surrounding scope, which is what lets the tests call helper
-// functions such as readCache and fetchRepoStatusByUrl directly.
-const bgSource = fs.readFileSync(require.resolve('../background.js'), 'utf8');
-const patchedSource = bgSource
-  .replace(/^const /gm, 'var ')
-  .replace(/^let /gm, 'var ');
-eval(patchedSource);
+// Load the exact service-worker source through its test-only CommonJS exports.
+const {
+  CACHE_SCHEMA_VERSION,
+  withinDays,
+  readCache,
+  writeCache,
+  clearCache,
+  smartClearCache,
+  handleMessage,
+  fetchRepoStatusByUrl,
+  fetchGithubRepoStatus,
+  fetchGithubRepoStatusViaSupabase,
+  attachScore,
+  gradeForScore,
+  validateSegment,
+  __test,
+} = require('../background.js');
 
 beforeEach(() => {
-  githubThrottleUntil = 0;
-  githubRequestQueue = Promise.resolve();
+  __test.resetGithubState();
 });
 
 describe('cache helpers', () => {
@@ -438,7 +444,7 @@ describe('GitHub throttling guard', () => {
 
     const first = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {});
     expect(first.status).toBe('rate_limited');
-    expect(githubThrottleUntil).toBeGreaterThan(Date.now());
+    expect(__test.getGithubThrottleUntil()).toBeGreaterThan(Date.now());
 
     fetch.mockClear();
     const second = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, 'ghp_test', {});
@@ -497,7 +503,7 @@ describe('GitHub throttling guard', () => {
   });
 
   test('skips the Supabase GitHub fallback while a local throttle window is active', async () => {
-    githubThrottleUntil = Date.now() + 60 * 1000;
+    __test.setGithubThrottleUntil(Date.now() + 60 * 1000);
 
     const result = await fetchGithubRepoStatusViaSupabase({ owner: 'owner', repo: 'repo' }, {});
 

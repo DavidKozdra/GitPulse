@@ -21,6 +21,7 @@
   "scripts": {
     "lint": "eslint --ext .js .",
     "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
     "test:watch": "jest --watch"
   },
   "devDependencies": {
