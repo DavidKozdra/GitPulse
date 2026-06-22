@@ -1,0 +1,23 @@
+#!/bin/sh
+# GitPulse pre-commit hook: run the Jest test suite before allowing a commit.
+# Tests + package.json live in src/, so run there.
+#
+# Skip with:  git commit --no-verify   (or)   GITPULSE_SKIP_TESTS=1 git commit
+
+if [ "$GITPULSE_SKIP_TESTS" = "1" ]; then
+  echo "pre-commit: GITPULSE_SKIP_TESTS=1 set, skipping tests."
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: running test suite..."
+if ! (cd "$repo_root/src" && npm test --silent); then
+  echo
+  echo "pre-commit: tests failed. Commit aborted."
+  echo "  Fix the failures, or bypass with: git commit --no-verify"
+  exit 1
+fi
+
+echo "pre-commit: tests passed."
+exit 0
