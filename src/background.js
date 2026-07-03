@@ -669,19 +669,20 @@ async function getPAT() {
 // ---------------------------
 async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
 
-  // Direct GitHub API calls require a user-provided token. The token check is
-  // intentionally simple: it catches obvious mistakes before issuing requests,
-  // while GitHub remains the source of truth for authorization.
-  if(!pat || pat.length === 0){
-    throw new Error("No PAT provided");
-  }
-  if (!/^(ghp_|github_pat_)/i.test(pat)) {
+  // A PAT is optional here. Authenticated requests get GitHub's higher rate
+  // limit (5000/hr) and access to private repos; without one we fall back to the
+  // public, unauthenticated API (60/hr per IP), which is enough for casual
+  // browsing and is the resilience path when the Supabase edge function is down.
+  // Only a *present* token is format-checked, so an obvious typo fails fast
+  // rather than silently making unauthenticated calls.
+  const hasPat = typeof pat === "string" && pat.length > 0;
+  if (hasPat && !/^(ghp_|github_pat_)/i.test(pat)) {
     throw new Error("Invalid PAT format — expected a token starting with ghp_ or github_pat_");
   }
 
   const headers = {
     Accept: "application/vnd.github.v3+json",
-    ...(pat ? { Authorization: `token ${pat}` } : {}),
+    ...(hasPat ? { Authorization: `token ${pat}` } : {}),
   };
 
   // 1) Repo metadata supplies archive state plus the baseline activity dates.
@@ -1156,11 +1157,21 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
         // Authenticated user → use GitHub directly with their PAT
         return attachScore(await fetchGithubRepoStatus({ owner, repo }, pat, rules), rules);
       }
-      
 
-      console.log("no pat use the server")
-      // No PAT → use Supabase edge function (server-side token)
-      return attachScore(await fetchGithubRepoStatusViaSupabase({ owner, repo }, rules), rules);
+      // No PAT → prefer the Supabase edge function (uses a server-side token, so
+      // it gets GitHub's higher rate limit). But that project can be unreachable
+      // (free-tier auto-pause, cold start, outage), which throws "Failed to
+      // fetch". Rather than surface a check failure, fall back to GitHub's public
+      // unauthenticated API so the banner still works.
+      try {
+        return attachScore(await fetchGithubRepoStatusViaSupabase({ owner, repo }, rules), rules);
+      } catch (supabaseErr) {
+        console.warn(
+          "GitPulse: Supabase edge function unavailable, falling back to unauthenticated GitHub API:",
+          String(supabaseErr)
+        );
+        return attachScore(await fetchGithubRepoStatus({ owner, repo }, null, rules), rules);
+      }
     }
 
     case "bitbucket.org": {

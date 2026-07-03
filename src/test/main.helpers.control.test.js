@@ -1,4 +1,9 @@
-const { isRepoUrl, getActiveConfigMetrics, isReloadNavigation } = require('../content/main.helpers');
+const {
+  isRepoUrl,
+  getActiveConfigMetrics,
+  isReloadNavigation,
+  formatRepoStatusDetails,
+} = require('../content/main.helpers');
 
 // Control tests for helper functions that content modules share. These provide
 // focused coverage for URL classification, config flattening, reload detection,
@@ -92,6 +97,47 @@ describe('isReloadNavigation control tests', () => {
     });
 
     expect(isReloadNavigation()).toBe(true);
+  });
+});
+
+describe('formatRepoStatusDetails error handling', () => {
+  // When the background service worker's fetch throws (offline, blocked host,
+  // CORS), it returns { status: false, details: { error } } and the banner shows
+  // this text. This is the source of the "Check failed: TypeError: Failed to
+  // fetch" banner. These tests pin that message so the network-failure surface
+  // stays readable.
+  test('surfaces a network fetch failure as a "Check failed" message', () => {
+    const text = formatRepoStatusDetails(false, {
+      error: 'TypeError: Failed to fetch',
+    });
+    expect(text).toBe('Check failed: TypeError: Failed to fetch');
+  });
+
+  test('strips a leading "Error:" prefix from the reported error', () => {
+    const text = formatRepoStatusDetails(false, {
+      error: 'Error: network request timed out',
+    });
+    expect(text).toBe('Check failed: network request timed out');
+  });
+
+  test('coerces a non-string Error object into text without throwing', () => {
+    // String(new TypeError('Failed to fetch')) === 'TypeError: Failed to fetch'.
+    // Only a leading "Error:" is stripped, so the "TypeError:" name is preserved
+    // — this is exactly what the user sees in the failing banner.
+    const text = formatRepoStatusDetails(false, {
+      error: new TypeError('Failed to fetch'),
+    });
+    expect(text).toBe('Check failed: TypeError: Failed to fetch');
+  });
+
+  test('reports the error for a plain false status from a failed fetch', () => {
+    // The background wraps fetch failures as { status: false, details: { error } },
+    // so status false + an error is exactly the "Failed to fetch" banner case.
+    const text = formatRepoStatusDetails(false, {
+      error: 'TypeError: Failed to fetch',
+      host: 'github.com',
+    });
+    expect(text).toBe('Check failed: TypeError: Failed to fetch');
   });
 });
 

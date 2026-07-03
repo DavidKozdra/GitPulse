@@ -23,9 +23,11 @@
     "test": "jest --runInBand",
     "test:coverage": "jest --runInBand --coverage",
     "test:watch": "jest --watch",
+    "test:e2e": "node e2e/banner.e2e.mjs",
     "prepare": "git -C .. config core.hooksPath .githooks || true"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
     "jest-environment-jsdom": "^29.0.0"

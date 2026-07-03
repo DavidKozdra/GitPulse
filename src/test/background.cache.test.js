@@ -547,6 +547,81 @@ describe('GitHub throttling guard', () => {
   });
 });
 
+describe('Supabase-down fallback to unauthenticated GitHub', () => {
+  // When there is no PAT the GitHub check normally goes through the Supabase edge
+  // function. That project can auto-pause / cold-start / go down, which throws
+  // "Failed to fetch" and previously produced a "Check failed" banner. These
+  // tests pin the resilience path: on a Supabase failure we fall back to GitHub's
+  // public unauthenticated API so the banner still resolves to a real status.
+  beforeEach(() => {
+    Object.keys(storage).forEach(k => delete storage[k]); // no PAT stored
+    fetch.mockReset();
+  });
+
+  test('fetchGithubRepoStatus works unauthenticated (no PAT, no Authorization header)', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({
+        archived: false,
+        pushed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    const result = await fetchGithubRepoStatus({ owner: 'owner', repo: 'repo' }, null, {
+      max_repo_update_time: 365,
+    });
+
+    expect(result.status).toBe(true);
+    // The public API path must not send an Authorization header.
+    const sentHeaders = fetch.mock.calls[0][1]?.headers || {};
+    expect(sentHeaders.Authorization).toBeUndefined();
+    expect(fetch.mock.calls[0][0]).toBe('https://api.github.com/repos/owner/repo');
+  });
+
+  test('falls back to the direct GitHub API when the Supabase edge function throws', async () => {
+    const now = new Date().toISOString();
+    fetch.mockImplementation((url) => {
+      // First hop: the Supabase edge function is down → simulate "Failed to fetch".
+      if (String(url).includes('supabase.co/functions')) {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      // Fallback hop: the public GitHub repo endpoint responds normally.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ archived: false, pushed_at: now, updated_at: now }),
+      });
+    });
+
+    const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {
+      max_repo_update_time: 365,
+    });
+
+    // Instead of a failed check, the banner gets a real active/inactive status.
+    expect(result.status).toBe(true);
+    // Proves the fallback actually hit GitHub directly after Supabase failed.
+    const calledGithub = fetch.mock.calls.some(([u]) =>
+      String(u).startsWith('https://api.github.com/repos/owner/repo')
+    );
+    expect(calledGithub).toBe(true);
+  });
+
+  test('surfaces a real failure if BOTH Supabase and the GitHub fallback fail', async () => {
+    // If the network is genuinely down, both hops reject. The check should still
+    // fail (the caller turns this into the "Check failed" banner) rather than
+    // hang or return a bogus active status.
+    fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(
+      fetchRepoStatusByUrl('https://github.com/owner/repo', { max_repo_update_time: 365 })
+    ).rejects.toThrow(/Failed to fetch/);
+  });
+});
+
 describe('score grading', () => {
   beforeEach(() => {
     Object.keys(storage).forEach(k => delete storage[k]);
