@@ -1076,6 +1076,13 @@ async function fetchLaunchpadStatus({ project }, rules) {
 const SUPABASE_GITHUB_STATUS_URL =
   "https://wmzfmdgkixsgmhmzpwlq.supabase.co/functions/v1/quick-responder";
 
+// Cloudflare Worker replacement for the Supabase edge function (see
+// /cloudflare). Preferred because Workers never auto-pause. Leave empty to skip
+// Cloudflare and use Supabase directly; set it to the deployed Worker URL after
+// running `wrangler deploy`. Declared with `let` only so tests can inject a URL
+// via __test.setCloudflareStatusUrl; production code never reassigns it.
+let CLOUDFLARE_GITHUB_STATUS_URL = "https://gitpulse-status.davidkozdra.workers.dev";
+
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtemZtZGdraXhzZ21obXpwd2xxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2OTA5MTcsImV4cCI6MjA3ODI2NjkxN30.FWl5v15JqRVc8kfKEv9s-BjSEUx4wZBW2NiH1N18zP8";
 
@@ -1121,6 +1128,70 @@ async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
   );
 }
 
+// Call the Cloudflare Worker (see /cloudflare). Mirrors the Supabase function's
+// contract exactly: POST { owner, repo, rules } → { status, details } (or
+// { status: "rate_limited" }). Shares the same GitHub throttle bookkeeping so a
+// rate-limited response backs off future calls. Throws on network failure so the
+// caller can fall through to the next source.
+async function fetchGithubRepoStatusViaCloudflare({ owner, repo }, rules) {
+  return withGithubBackoff(
+    () => rateLimitedStatus("github.com"),
+    async () => {
+      const resp = await fetch(CLOUDFLARE_GITHUB_STATUS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner, repo, rules }),
+      });
+
+      if (!resp.ok) {
+        if (resp.status === 429 || resp.status === 403) {
+          rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
+          return rateLimitedStatus("github.com");
+        }
+        throw new Error(`Cloudflare github-status failed: ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      if (data?.status === "rate_limited" || data?.rateLimited === true) {
+        rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
+        return rateLimitedStatus("github.com");
+      }
+      return data;
+    }
+  );
+}
+
+// Resolve a GitHub repo status when the user has no PAT, trying hosted backends
+// in preference order and falling through only on genuine network failure. A
+// backend that *responds* (including "private" or "rate_limited") is trusted and
+// ends the chain; only a thrown fetch error advances to the next source.
+async function fetchGithubRepoStatusNoPat({ owner, repo }, rules) {
+  const sources = [];
+  if (CLOUDFLARE_GITHUB_STATUS_URL) {
+    sources.push(["Cloudflare Worker", () => fetchGithubRepoStatusViaCloudflare({ owner, repo }, rules)]);
+  }
+  sources.push(["Supabase edge function", () => fetchGithubRepoStatusViaSupabase({ owner, repo }, rules)]);
+  // Final fallback: GitHub's public unauthenticated API (no server involved).
+  sources.push(["unauthenticated GitHub API", () => fetchGithubRepoStatus({ owner, repo }, null, rules)]);
+
+  let lastErr;
+  for (let i = 0; i < sources.length; i++) {
+    const [label, run] = sources[i];
+    try {
+      return await run();
+    } catch (err) {
+      lastErr = err;
+      const next = sources[i + 1];
+      if (next) {
+        console.warn(`GitPulse: ${label} unavailable, falling back to ${next[0]}:`, String(err));
+      }
+    }
+  }
+  // Every source failed (e.g. the network is genuinely down). Re-throw so the
+  // caller renders the real "Check failed" banner instead of a bogus status.
+  throw lastErr;
+}
+
 
 
 // Add other ecosystems similarly (GitLab, Bitbucket, npm, etc.)
@@ -1158,20 +1229,13 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
         return attachScore(await fetchGithubRepoStatus({ owner, repo }, pat, rules), rules);
       }
 
-      // No PAT → prefer the Supabase edge function (uses a server-side token, so
-      // it gets GitHub's higher rate limit). But that project can be unreachable
-      // (free-tier auto-pause, cold start, outage), which throws "Failed to
-      // fetch". Rather than surface a check failure, fall back to GitHub's public
-      // unauthenticated API so the banner still works.
-      try {
-        return attachScore(await fetchGithubRepoStatusViaSupabase({ owner, repo }, rules), rules);
-      } catch (supabaseErr) {
-        console.warn(
-          "GitPulse: Supabase edge function unavailable, falling back to unauthenticated GitHub API:",
-          String(supabaseErr)
-        );
-        return attachScore(await fetchGithubRepoStatus({ owner, repo }, null, rules), rules);
-      }
+      // No PAT → use a server-side token via a hosted function (higher rate
+      // limit, no PAT needed). Try sources in order and fall through on network
+      // failure so one backend being down never surfaces a check failure:
+      //   1. Cloudflare Worker  (preferred — never auto-pauses)
+      //   2. Supabase edge fn   (legacy; free tier can auto-pause)
+      //   3. public GitHub API  (unauthenticated, 60/hr per IP — last resort)
+      return attachScore(await fetchGithubRepoStatusNoPat({ owner, repo }, rules), rules);
     }
 
     case "bitbucket.org": {
@@ -1499,6 +1563,8 @@ if (typeof module !== "undefined" && module.exports) {
     fetchRepoStatusByUrl,
     fetchGithubRepoStatus,
     fetchGithubRepoStatusViaSupabase,
+    fetchGithubRepoStatusViaCloudflare,
+    fetchGithubRepoStatusNoPat,
     calculateRepoScore,
     attachScore,
     gradeForScore,
@@ -1509,12 +1575,16 @@ if (typeof module !== "undefined" && module.exports) {
       resetGithubState() {
         githubThrottleUntil = 0;
         githubRequestQueue = Promise.resolve();
+        CLOUDFLARE_GITHUB_STATUS_URL = "";
       },
       setGithubThrottleUntil(value) {
         githubThrottleUntil = value;
       },
       getGithubThrottleUntil() {
         return githubThrottleUntil;
+      },
+      setCloudflareStatusUrl(url) {
+        CLOUDFLARE_GITHUB_STATUS_URL = url || "";
       },
     },
   };

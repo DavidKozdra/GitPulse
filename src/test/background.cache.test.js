@@ -57,6 +57,7 @@ const {
   fetchRepoStatusByUrl,
   fetchGithubRepoStatus,
   fetchGithubRepoStatusViaSupabase,
+  fetchGithubRepoStatusViaCloudflare,
   attachScore,
   gradeForScore,
   validateSegment,
@@ -619,6 +620,98 @@ describe('Supabase-down fallback to unauthenticated GitHub', () => {
     await expect(
       fetchRepoStatusByUrl('https://github.com/owner/repo', { max_repo_update_time: 365 })
     ).rejects.toThrow(/Failed to fetch/);
+  });
+});
+
+describe('Cloudflare Worker status source', () => {
+  // The Cloudflare Worker is the preferred hosted backend (never auto-pauses).
+  // When its URL is configured the no-PAT chain is: Cloudflare → Supabase →
+  // unauthenticated GitHub. These tests pin that ordering and the client
+  // contract with the Worker.
+  const CF_URL = 'https://gitpulse-status.example.workers.dev';
+
+  beforeEach(() => {
+    Object.keys(storage).forEach(k => delete storage[k]); // no PAT
+    fetch.mockReset();
+    __test.setCloudflareStatusUrl(CF_URL);
+  });
+
+  test('POSTs { owner, repo, rules } to the Worker and returns its status', async () => {
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ status: true, details: { host: 'github.com' } }),
+    });
+
+    const result = await fetchGithubRepoStatusViaCloudflare(
+      { owner: 'owner', repo: 'repo' },
+      { max_repo_update_time: 365 }
+    );
+
+    expect(result.status).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetch.mock.calls[0];
+    expect(url).toBe(CF_URL);
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({
+      owner: 'owner',
+      repo: 'repo',
+      rules: { max_repo_update_time: 365 },
+    });
+    // Unlike Supabase, the Worker needs no apikey/Authorization header.
+    expect(opts.headers.Authorization).toBeUndefined();
+    expect(opts.headers.apikey).toBeUndefined();
+  });
+
+  test('prefers Cloudflare over Supabase when its URL is configured', async () => {
+    const now = new Date().toISOString();
+    fetch.mockImplementation((url) => {
+      if (String(url) === CF_URL) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ status: true, details: { host: 'github.com', pushedAt: now } }),
+        });
+      }
+      // Any Supabase/GitHub call would mean the chain did NOT stop at Cloudflare.
+      return Promise.reject(new Error('should not reach Supabase or GitHub'));
+    });
+
+    const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {
+      max_repo_update_time: 365,
+    });
+
+    expect(result.status).toBe(true);
+    expect(fetch.mock.calls.every(([u]) => String(u) === CF_URL)).toBe(true);
+  });
+
+  test('falls back Cloudflare → Supabase → GitHub as each source fails', async () => {
+    const now = new Date().toISOString();
+    fetch.mockImplementation((url) => {
+      const u = String(url);
+      if (u === CF_URL) return Promise.reject(new TypeError('Failed to fetch')); // CF down
+      if (u.includes('supabase.co/functions')) return Promise.reject(new TypeError('Failed to fetch')); // Supabase down
+      // Public GitHub API answers.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ archived: false, pushed_at: now, updated_at: now }),
+      });
+    });
+
+    const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {
+      max_repo_update_time: 365,
+    });
+
+    expect(result.status).toBe(true);
+    // All three sources were attempted, in order.
+    const urls = fetch.mock.calls.map(([u]) => String(u));
+    expect(urls[0]).toBe(CF_URL);
+    expect(urls.some((u) => u.includes('supabase.co/functions'))).toBe(true);
+    expect(urls.some((u) => u.startsWith('https://api.github.com/repos/owner/repo'))).toBe(true);
   });
 });
 
