@@ -1,0 +1,16 @@
+{
+  "name": "gitpulse-status-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker that serves GitPulse repo-status checks (replaces the Supabase edge function).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "wrangler login",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secret": "wrangler secret put GITHUB_TOKEN"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}

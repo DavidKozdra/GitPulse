@@ -1,0 +1,15 @@
+name = "gitpulse-status"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+
+# Per-IP rate limiting so the shared GitHub token cannot be drained by one caller.
+# Tune to taste; 30 requests / 60s per IP is generous for interactive browsing.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+# GITHUB_TOKEN is a SECRET, not set here. Provision it with:
+#   wrangler secret put GITHUB_TOKEN
+# Use a fine-grained PAT with public-repo read-only access.
