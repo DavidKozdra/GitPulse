@@ -91,17 +91,6 @@
     return withChromeCallback(cb => chromeStorage.local.remove(keys, cb), getChrome()?.runtime);
   }
 
-  function tabsQuery(queryInfo) {
-    const browserTabs = getBrowser()?.tabs;
-    if (isFn(browserTabs?.query)) return browserTabs.query(queryInfo);
-
-    const chromeApi = getChrome();
-    if (!isFn(chromeApi?.tabs?.query)) {
-      throw new Error('tabs.query unavailable');
-    }
-    return withChromeCallback(cb => chromeApi.tabs.query(queryInfo, cb), chromeApi.runtime);
-  }
-
   // Normalize onMessage listeners. Returns an unsubscribe function.
   function addOnMessageListener(handler) {
     // Firefox supports Promise-returning listeners directly. Chrome requires
@@ -168,7 +157,6 @@
   const ext = {
     sendMessage,
     storage: { local: { get: storageGet, set: storageSet, remove: storageRemove }, onChanged },
-    tabs: { query: tabsQuery },
     runtime: {
       addOnMessageListener: addOnMessageListener,
       // convenience: raw access for advanced usage if needed

@@ -713,6 +713,33 @@ describe('Cloudflare Worker status source', () => {
     expect(urls.some((u) => u.includes('supabase.co/functions'))).toBe(true);
     expect(urls.some((u) => u.startsWith('https://api.github.com/repos/owner/repo'))).toBe(true);
   });
+
+  test('a responding-but-not-success Cloudflare reply ends the chain (no Supabase/GitHub)', async () => {
+    // The core invariant of fetchGithubRepoStatusNoPat: only a *thrown* fetch
+    // error advances to the next source. A backend that responds — even with
+    // "rate_limited" or "private" — is trusted and stops the chain. Here the
+    // Worker reports the shared GitHub token is rate-limited; Supabase and the
+    // public GitHub API must never be contacted.
+    fetch.mockImplementation((url) => {
+      if (String(url) === CF_URL) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({ status: 'rate_limited' }),
+        });
+      }
+      return Promise.reject(new Error('should not reach Supabase or GitHub'));
+    });
+
+    const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {
+      max_repo_update_time: 365,
+    });
+
+    expect(result.status).toBe('rate_limited');
+    // Cloudflare was the only backend contacted — the chain stopped on a response.
+    expect(fetch.mock.calls.every(([u]) => String(u) === CF_URL)).toBe(true);
+  });
 });
 
 describe('score grading', () => {
