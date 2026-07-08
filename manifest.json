@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitPulse",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "A Chrome extension to show activity for repo links before you click them.",
   "permissions": [
     "storage"
@@ -10,6 +10,7 @@
     "https://api.github.com/*",
     "https://github.com/*",
     "https://wmzfmdgkixsgmhmzpwlq.supabase.co/*",
+    "https://gitpulse-status.davidkozdra.workers.dev/*",
     "https://codeberg.org/*",
     "https://gitlab.com/*",
     "https://api.bitbucket.org/*",

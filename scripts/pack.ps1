@@ -22,10 +22,65 @@ if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 New-Item -ItemType Directory -Force -Path (Join-Path $DistDir 'edge') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $DistDir 'firefox') | Out-Null
 
-# Build Edge package (copy root manifest + src directory)
+# Files that make up the shippable extension. Everything else under src/
+# (node_modules, tests, coverage, dotfiles, lockfiles) must NOT be packaged:
+# Manifest V3 stores reject bundled remotely-hosted code, and dev dependencies
+# such as yargs/sprintf-js contain references to remote URLs.
+$include = @(
+  'background.js',
+  'compat.js',
+  'config.js',
+  'main.js',
+  'emoji.js',
+  'popup.html',
+  'popup.js',
+  'style.css',
+  'icon.png',
+  'content/main.helpers.js',
+  'content/main.banner.js',
+  'content/main.links.js',
+  'content/main.detect.js',
+  'content/main.bootstrap.js'
+)
+
+# Build Edge/Chrome package (root manifest + whitelisted src files only)
 $edgeDir = Join-Path $DistDir 'edge'
+$edgeSrcDir = Join-Path $edgeDir 'src'
 Copy-Item -Force $rootManifestPath -Destination (Join-Path $edgeDir 'manifest.json')
-Copy-Item -Recurse -Force $SrcDir -Destination (Join-Path $edgeDir 'src')
+foreach ($rel in $include) {
+  $srcPath  = Join-Path $SrcDir $rel
+  $destPath = Join-Path $edgeSrcDir $rel
+  $destDir  = Split-Path -Parent $destPath
+  New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+  if (-not (Test-Path $srcPath)) { throw "Missing required file for Edge package: $rel" }
+  Copy-Item -Force $srcPath -Destination $destPath
+}
+
+# Fail the build if remotely hosted executable code or common MV3-incompatible
+# dynamic-code constructs ever enter the Chrome/Edge package.
+$forbiddenPatterns = @(
+  @{ Name = 'remote script tag'; Pattern = '<script[^>]+src\s*=\s*["'']https?://' },
+  @{ Name = 'remote module import'; Pattern = '(?:from\s*|import\s*\()["'']https?://' },
+  @{ Name = 'remote worker import'; Pattern = 'importScripts\s*\([^)]*https?://' },
+  @{ Name = 'remote CSS resource'; Pattern = '(?:@import|url\s*\()[^;\r\n]*https?://' },
+  @{ Name = 'eval'; Pattern = '\beval\s*\(' },
+  @{ Name = 'Function constructor'; Pattern = '\bnew\s+Function\s*\(' }
+)
+$scanFiles = Get-ChildItem $edgeDir -Recurse -File | Where-Object { $_.Extension -in '.js', '.mjs', '.html', '.css' }
+foreach ($rule in $forbiddenPatterns) {
+  $matches = $scanFiles | Select-String -Pattern $rule.Pattern
+  if ($matches) {
+    $locations = ($matches | ForEach-Object { "$($_.Path):$($_.LineNumber)" }) -join ', '
+    throw "Manifest V3 validation failed ($($rule.Name)): $locations"
+  }
+}
+$unexpected = Get-ChildItem $edgeDir -Recurse -File | Where-Object {
+  $_.FullName -match '[\\/](node_modules|test|tests|coverage)[\\/]' -or
+  $_.Name -in 'package.json', 'package-lock.json'
+}
+if ($unexpected) {
+  throw "Development files found in extension package: $($unexpected.FullName -join ', ')"
+}
 Compress-Archive -Path (Join-Path $edgeDir '*') -DestinationPath (Join-Path $DistDir "GitPulse-$version-edge.zip") -Force
 
 # Build Firefox package (use root firefox manifest if present, else derive)
@@ -53,22 +108,8 @@ $ffGitPulseDir = Join-Path $ffDir 'GitPulse'
 $ffSrcDir      = Join-Path $ffGitPulseDir 'src'
 New-Item -ItemType Directory -Force -Path $ffSrcDir | Out-Null
 
-# Whitelist files for Firefox package to avoid dev/test/dotfiles
-$include = @(
-  'background.js',
-  'compat.js',
-  'config.js',
-  'main.js',
-  'popup.html',
-  'popup.js',
-  'style.css',
-  'icon.png',
-  'content/main.helpers.js',
-  'content/main.banner.js',
-  'content/main.links.js',
-  'content/main.detect.js',
-  'content/main.bootstrap.js'
-)
+# Firefox package reuses the same $include whitelist defined above so both
+# packages stay in sync and neither ships dev/test/dotfiles or node_modules.
 foreach ($rel in $include) {
   $srcPath  = Join-Path $SrcDir $rel
   $destPath = Join-Path $ffSrcDir $rel
@@ -138,6 +179,4 @@ try {
 
 Write-Host "Created: $(Join-Path $DistDir "GitPulse-$version-edge.zip")"
 Write-Host "Created: $(Join-Path $DistDir "GitPulse-$version-firefox.zip")"
-
-
 

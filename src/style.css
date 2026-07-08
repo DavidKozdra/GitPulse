@@ -58,7 +58,8 @@
 /* -----------------------------------
    GLOBAL STYLES
 ----------------------------------- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+/* Keep popup styling self-contained. The body font stack below uses the
+   native system UI font instead of fetching a remote font stylesheet. */
 
 * {
   box-sizing: border-box;
