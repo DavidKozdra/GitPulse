@@ -1,8 +1,7 @@
 # GitPulse status Worker (Cloudflare)
 
-Replaces the Supabase `quick-responder` edge function. Same request/response
-contract, but Cloudflare Workers never auto-pause (the free-tier Supabase pause
-was the source of the intermittent `Check failed: Failed to fetch` banner).
+Provides the hosted GitHub status backend. Cloudflare Workers do not auto-pause,
+avoiding intermittent `Check failed: Failed to fetch` errors.
 
 ## What it does
 
@@ -33,8 +32,8 @@ In `src/background.js`, set:
 const CLOUDFLARE_GITHUB_STATUS_URL = "https://gitpulse-status.<your-subdomain>.workers.dev";
 ```
 
-The extension tries Cloudflare first, then falls back to Supabase, then to the
-public unauthenticated GitHub API — so nothing breaks during cutover.
+The extension tries Cloudflare first, then falls back to the public
+unauthenticated GitHub API.
 
 ## Rate limiting
 

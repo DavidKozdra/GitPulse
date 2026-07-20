@@ -81,7 +81,7 @@ These checks exercise the full extension in a real browser environment.
   - The value is saved and re‑loaded when you reopen the popup.
   - The background script sees the value (no console errors when checking repos).
 - Clear/blank the PAT:
-  - Confirm the extension falls back to the Supabase endpoint (no crashes, banner still works).
+  - Confirm the extension falls back to the public GitHub API (no crashes, banner still works).
 
 ### 3.4 GitHub repo banner
 
@@ -156,4 +156,3 @@ These checks exercise the full extension in a real browser environment.
     - Any new status values (e.g., additional host‑specific states).
 
 Use this document as a quick checklist whenever you change behavior or add new hosts/metrics.
-

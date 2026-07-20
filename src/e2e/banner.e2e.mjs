@@ -2,7 +2,7 @@
 //
 // This loads the UNPACKED extension into a real Chromium and drives the banner
 // on a stubbed github.com repo page. It does NOT hit the live network: every
-// request the service worker makes (api.github.com / the Supabase edge fn) is
+// request the service worker makes (Cloudflare / api.github.com) is
 // intercepted, so the two banner states are deterministic:
 //
 //   1. Healthy API response      -> banner shows "Active"
@@ -39,13 +39,6 @@ const STUB_PAGE = `<!doctype html><html><head><title>stub repo</title>` +
   `</head><body><h1>stub repo page</h1></body></html>`;
 
 // A healthy GitHub REST payload shaped like what fetchGithubRepoStatus reads.
-// (No PAT set -> the SW actually calls the Supabase edge fn, which we stub to
-// return the extension's already-computed status object. We stub BOTH paths so
-// the test is robust to whether a PAT happens to be configured.)
-const HEALTHY_SUPABASE = {
-  status: true,
-  details: { pushedAt: new Date().toISOString(), openPrCount: 3 },
-};
 const HEALTHY_GITHUB_REPO = {
   archived: false,
   pushed_at: new Date().toISOString(),
@@ -129,7 +122,6 @@ async function runScenario({ label, routeHandler }) {
       // API endpoints the SW hits -> defer to the scenario.
       const isApi =
         url.includes('api.github.com') ||
-        url.includes('supabase.co/functions') ||
         url.includes('/api/'); // codeberg etc., harmless here
       if (isApi) {
         const method = route.request().method();
@@ -171,8 +163,7 @@ async function main() {
   const healthy = await runScenario({
     label: 'healthy',
     routeHandler: (route, url) => {
-      const body = url.includes('supabase.co/functions') ? HEALTHY_SUPABASE : HEALTHY_GITHUB_REPO;
-      return fulfillJson(route, body);
+      return fulfillJson(route, HEALTHY_GITHUB_REPO);
     },
   });
   check(
@@ -198,23 +189,23 @@ async function main() {
     `details="${broken.details}"`
   );
 
-  console.log('\n=== Scenario 3: Supabase DOWN but GitHub reachable -> expect Active (fallback) ===');
+  console.log('\n=== Scenario 3: Cloudflare DOWN but GitHub reachable -> expect Active (fallback) ===');
   const fallback = await runScenario({
     label: 'fallback',
     routeHandler: (route, url) => {
-      // Simulate the free-tier auto-pause: the edge function is unreachable...
-      if (url.includes('supabase.co/functions')) return route.abort('failed');
-      // ...but GitHub's public API answers, so the fallback path must recover.
+      // Simulate the hosted backend being unreachable; GitHub's public API
+      // answers, so the fallback path must recover.
+      if (url.includes('workers.dev')) return route.abort('failed');
       return fulfillJson(route, HEALTHY_GITHUB_REPO);
     },
   });
   check(
-    'Supabase-down still shows an Active banner via the GitHub fallback',
+    'Cloudflare-down still shows an Active banner via the GitHub fallback',
     /active/i.test(fallback.main) && !/InActive/i.test(fallback.main),
     `got "${fallback.main}"`
   );
   check(
-    'Supabase-down does NOT show "Check failed"',
+    'Cloudflare-down does NOT show "Check failed"',
     !/Check failed/i.test(fallback.details),
     `details="${fallback.details}"`
   );

@@ -1,7 +1,7 @@
 {
   "name": "gitpulse-status-worker",
   "version": "1.0.0",
-  "description": "Cloudflare Worker that serves GitPulse repo-status checks (replaces the Supabase edge function).",
+  "description": "Cloudflare Worker that serves GitPulse repository status checks.",
   "private": true,
   "type": "module",
   "scripts": {

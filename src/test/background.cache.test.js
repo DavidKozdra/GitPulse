@@ -56,7 +56,6 @@ const {
   handleMessage,
   fetchRepoStatusByUrl,
   fetchGithubRepoStatus,
-  fetchGithubRepoStatusViaSupabase,
   fetchGithubRepoStatusViaCloudflare,
   attachScore,
   gradeForScore,
@@ -538,22 +537,9 @@ describe('GitHub throttling guard', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  test('skips the Supabase GitHub fallback while a local throttle window is active', async () => {
-    __test.setGithubThrottleUntil(Date.now() + 60 * 1000);
-
-    const result = await fetchGithubRepoStatusViaSupabase({ owner: 'owner', repo: 'repo' }, {});
-
-    expect(result.status).toBe('rate_limited');
-    expect(fetch).not.toHaveBeenCalled();
-  });
 });
 
-describe('Supabase-down fallback to unauthenticated GitHub', () => {
-  // When there is no PAT the GitHub check normally goes through the Supabase edge
-  // function. That project can auto-pause / cold-start / go down, which throws
-  // "Failed to fetch" and previously produced a "Check failed" banner. These
-  // tests pin the resilience path: on a Supabase failure we fall back to GitHub's
-  // public unauthenticated API so the banner still resolves to a real status.
+describe('Unauthenticated GitHub fallback', () => {
   beforeEach(() => {
     Object.keys(storage).forEach(k => delete storage[k]); // no PAT stored
     fetch.mockReset();
@@ -582,13 +568,9 @@ describe('Supabase-down fallback to unauthenticated GitHub', () => {
     expect(fetch.mock.calls[0][0]).toBe('https://api.github.com/repos/owner/repo');
   });
 
-  test('falls back to the direct GitHub API when the Supabase edge function throws', async () => {
+  test('falls back to the direct GitHub API when the hosted backend throws', async () => {
     const now = new Date().toISOString();
     fetch.mockImplementation((url) => {
-      // First hop: the Supabase edge function is down → simulate "Failed to fetch".
-      if (String(url).includes('supabase.co/functions')) {
-        return Promise.reject(new TypeError('Failed to fetch'));
-      }
       // Fallback hop: the public GitHub repo endpoint responds normally.
       return Promise.resolve({
         ok: true,
@@ -604,14 +586,14 @@ describe('Supabase-down fallback to unauthenticated GitHub', () => {
 
     // Instead of a failed check, the banner gets a real active/inactive status.
     expect(result.status).toBe(true);
-    // Proves the fallback actually hit GitHub directly after Supabase failed.
+    // Proves the fallback actually hit GitHub directly after the hosted backend failed.
     const calledGithub = fetch.mock.calls.some(([u]) =>
       String(u).startsWith('https://api.github.com/repos/owner/repo')
     );
     expect(calledGithub).toBe(true);
   });
 
-  test('surfaces a real failure if BOTH Supabase and the GitHub fallback fail', async () => {
+  test('surfaces a real failure if BOTH hosted backend and GitHub fail', async () => {
     // If the network is genuinely down, both hops reject. The check should still
     // fail (the caller turns this into the "Check failed" banner) rather than
     // hang or return a bogus active status.
@@ -625,7 +607,7 @@ describe('Supabase-down fallback to unauthenticated GitHub', () => {
 
 describe('Cloudflare Worker status source', () => {
   // The Cloudflare Worker is the preferred hosted backend (never auto-pauses).
-  // When its URL is configured the no-PAT chain is: Cloudflare → Supabase →
+  // When its URL is configured the no-PAT chain is: Cloudflare →
   // unauthenticated GitHub. These tests pin that ordering and the client
   // contract with the Worker.
   const CF_URL = 'https://gitpulse-status.example.workers.dev';
@@ -659,12 +641,12 @@ describe('Cloudflare Worker status source', () => {
       repo: 'repo',
       rules: { max_repo_update_time: 365 },
     });
-    // Unlike Supabase, the Worker needs no apikey/Authorization header.
+    // The Worker needs no apikey/Authorization header.
     expect(opts.headers.Authorization).toBeUndefined();
     expect(opts.headers.apikey).toBeUndefined();
   });
 
-  test('prefers Cloudflare over Supabase when its URL is configured', async () => {
+  test('uses Cloudflare before GitHub when its URL is configured', async () => {
     const now = new Date().toISOString();
     fetch.mockImplementation((url) => {
       if (String(url) === CF_URL) {
@@ -675,8 +657,8 @@ describe('Cloudflare Worker status source', () => {
           json: async () => ({ status: true, details: { host: 'github.com', pushedAt: now } }),
         });
       }
-      // Any Supabase/GitHub call would mean the chain did NOT stop at Cloudflare.
-      return Promise.reject(new Error('should not reach Supabase or GitHub'));
+      // Any GitHub call would mean the chain did NOT stop at Cloudflare.
+      return Promise.reject(new Error('should not reach GitHub'));
     });
 
     const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {
@@ -687,12 +669,11 @@ describe('Cloudflare Worker status source', () => {
     expect(fetch.mock.calls.every(([u]) => String(u) === CF_URL)).toBe(true);
   });
 
-  test('falls back Cloudflare → Supabase → GitHub as each source fails', async () => {
+  test('falls back Cloudflare → GitHub when Cloudflare fails', async () => {
     const now = new Date().toISOString();
     fetch.mockImplementation((url) => {
       const u = String(url);
       if (u === CF_URL) return Promise.reject(new TypeError('Failed to fetch')); // CF down
-      if (u.includes('supabase.co/functions')) return Promise.reject(new TypeError('Failed to fetch')); // Supabase down
       // Public GitHub API answers.
       return Promise.resolve({
         ok: true,
@@ -707,19 +688,18 @@ describe('Cloudflare Worker status source', () => {
     });
 
     expect(result.status).toBe(true);
-    // All three sources were attempted, in order.
+    // Both sources were attempted, in order.
     const urls = fetch.mock.calls.map(([u]) => String(u));
     expect(urls[0]).toBe(CF_URL);
-    expect(urls.some((u) => u.includes('supabase.co/functions'))).toBe(true);
     expect(urls.some((u) => u.startsWith('https://api.github.com/repos/owner/repo'))).toBe(true);
   });
 
-  test('a responding-but-not-success Cloudflare reply ends the chain (no Supabase/GitHub)', async () => {
+  test('a responding-but-not-success Cloudflare reply ends the chain (no GitHub)', async () => {
     // The core invariant of fetchGithubRepoStatusNoPat: only a *thrown* fetch
     // error advances to the next source. A backend that responds — even with
     // "rate_limited" or "private" — is trusted and stops the chain. Here the
-    // Worker reports the shared GitHub token is rate-limited; Supabase and the
-    // public GitHub API must never be contacted.
+    // Worker reports the shared GitHub token is rate-limited; the public GitHub
+    // API must never be contacted.
     fetch.mockImplementation((url) => {
       if (String(url) === CF_URL) {
         return Promise.resolve({
@@ -729,7 +709,7 @@ describe('Cloudflare Worker status source', () => {
           json: async () => ({ status: 'rate_limited' }),
         });
       }
-      return Promise.reject(new Error('should not reach Supabase or GitHub'));
+      return Promise.reject(new Error('should not reach GitHub'));
     });
 
     const result = await fetchRepoStatusByUrl('https://github.com/owner/repo', {

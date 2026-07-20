@@ -7,7 +7,6 @@
                         "storage",
                         "https://api.github.com/*",
                         "https://github.com/*",
-                        "https://wmzfmdgkixsgmhmzpwlq.supabase.co/*",
                         "https://gitpulse-status.davidkozdra.workers.dev/*",
                         "https://codeberg.org/*",
                         "https://gitlab.com/*",

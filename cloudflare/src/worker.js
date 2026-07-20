@@ -1,15 +1,13 @@
-// GitPulse status Worker — Cloudflare replacement for the Supabase
-// `quick-responder` edge function.
+// GitPulse status Worker — hosted GitHub status backend.
 //
-// Contract (kept identical to the Supabase function so the extension needs only
-// a URL swap):
+// Contract:
 //   POST /            body: { owner, repo, rules }
 //   200               { status, details: {...} }        // normal result
 //   200               { status: "rate_limited" }        // GitHub throttled us
 //   4xx/5xx           { error }                          // client sees a failure
 //
-// Why Cloudflare: Workers never auto-pause (unlike free-tier Supabase projects),
-// have ~0ms cold starts, and give 100k requests/day free. The server-side GitHub
+// Why Cloudflare: Workers never auto-pause, have ~0ms cold starts, and give
+// 100k requests/day free. The server-side GitHub
 // token lives in `env.GITHUB_TOKEN` (a Worker secret) so end users never need a
 // PAT and the token is never shipped in the extension.
 //

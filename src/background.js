@@ -672,7 +672,7 @@ async function fetchGithubRepoStatus({ owner, repo }, pat, rules) {
   // A PAT is optional here. Authenticated requests get GitHub's higher rate
   // limit (5000/hr) and access to private repos; without one we fall back to the
   // public, unauthenticated API (60/hr per IP), which is enough for casual
-  // browsing and is the resilience path when the Supabase edge function is down.
+  // browsing and is the resilience path when the hosted Worker is down.
   // Only a *present* token is format-checked, so an obvious typo fails fast
   // rather than silently making unauthenticated calls.
   const hasPat = typeof pat === "string" && pat.length > 0;
@@ -1063,72 +1063,13 @@ async function fetchLaunchpadStatus({ project }, rules) {
   }, rules);
 }
 
-// Supabase config for unauthenticated GitHub status checks.
-//
-// SECURITY NOTE: SUPABASE_ANON_KEY is the project's *anonymous* publishable key.
-// Like a Firebase web config, it is intended to be shipped in client code — it
-// grants no privileges beyond what Row Level Security and the edge function
-// itself allow, so this is NOT a leaked secret and can be safely committed.
-// Because it is public, the edge function (quick-responder) is the only place
-// abuse can be controlled: it MUST enforce its own per-IP/origin rate limiting
-// so a third party cannot drain this project's GitHub quota or Supabase billing.
-// The service-role key must never appear here.
-const SUPABASE_GITHUB_STATUS_URL =
-  "https://wmzfmdgkixsgmhmzpwlq.supabase.co/functions/v1/quick-responder";
-
-// Cloudflare Worker replacement for the Supabase edge function (see
-// /cloudflare). Preferred because Workers never auto-pause. Leave empty to skip
-// Cloudflare and use Supabase directly; set it to the deployed Worker URL after
-// running `wrangler deploy`. Declared with `let` only so tests can inject a URL
-// via __test.setCloudflareStatusUrl; production code never reassigns it.
+// Cloudflare Worker backend for unauthenticated GitHub status checks (see
+// /cloudflare).
 let CLOUDFLARE_GITHUB_STATUS_URL = "https://gitpulse-status.davidkozdra.workers.dev";
 
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtemZtZGdraXhzZ21obXpwd2xxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2OTA5MTcsImV4cCI6MjA3ODI2NjkxN30.FWl5v15JqRVc8kfKEv9s-BjSEUx4wZBW2NiH1N18zP8";
-
-// Call the Supabase edge function when the user has no PAT.
+// Call the hosted Worker when the user has no PAT.
 // It returns the same shape as fetchGithubRepoStatus: { status, details: {...} }
-async function fetchGithubRepoStatusViaSupabase({ owner, repo }, rules) {
-  // When there is no user PAT, defer GitHub checks to the edge function. It
-  // returns the same status shape as the direct GitHub adapter so callers do not
-  // need a special case.
-  return withGithubBackoff(
-    () => rateLimitedStatus("github.com"),
-    async () => {
-      const resp = await fetch(SUPABASE_GITHUB_STATUS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ owner, repo, rules }),
-      });
-
-      if (!resp.ok) {
-        console.error("Supabase response not ok:", resp.status);
-        if (resp.status === 429 || resp.status === 403) {
-          rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
-          return rateLimitedStatus("github.com");
-        }
-        throw new Error(`Supabase github-status failed: ${resp.status}`);
-      }
-
-      if (githubRateLimitRemaining(resp) === 0) {
-        rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
-      }
-
-      const data = await resp.json();
-      if (data?.status === "rate_limited" || data?.rateLimited === true) {
-        rememberGithubThrottle(resp, GITHUB_THROTTLE_FALLBACK_MS);
-        return rateLimitedStatus("github.com");
-      }
-      return data;
-    }
-  );
-}
-
-// Call the Cloudflare Worker (see /cloudflare). Mirrors the Supabase function's
+// Call the Cloudflare Worker (see /cloudflare).
 // contract exactly: POST { owner, repo, rules } → { status, details } (or
 // { status: "rate_limited" }). Shares the same GitHub throttle bookkeeping so a
 // rate-limited response backs off future calls. Throws on network failure so the
@@ -1170,7 +1111,6 @@ async function fetchGithubRepoStatusNoPat({ owner, repo }, rules) {
   if (CLOUDFLARE_GITHUB_STATUS_URL) {
     sources.push(["Cloudflare Worker", () => fetchGithubRepoStatusViaCloudflare({ owner, repo }, rules)]);
   }
-  sources.push(["Supabase edge function", () => fetchGithubRepoStatusViaSupabase({ owner, repo }, rules)]);
   // Final fallback: GitHub's public unauthenticated API (no server involved).
   sources.push(["unauthenticated GitHub API", () => fetchGithubRepoStatus({ owner, repo }, null, rules)]);
 
@@ -1232,9 +1172,8 @@ async function fetchRepoStatusByUrl(rawUrl, rules) {
       // No PAT → use a server-side token via a hosted function (higher rate
       // limit, no PAT needed). Try sources in order and fall through on network
       // failure so one backend being down never surfaces a check failure:
-      //   1. Cloudflare Worker  (preferred — never auto-pauses)
-      //   2. Supabase edge fn   (legacy; free tier can auto-pause)
-      //   3. public GitHub API  (unauthenticated, 60/hr per IP — last resort)
+      //   1. Cloudflare Worker
+      //   2. public GitHub API (unauthenticated, 60/hr per IP — last resort)
       return attachScore(await fetchGithubRepoStatusNoPat({ owner, repo }, rules), rules);
     }
 
@@ -1562,7 +1501,6 @@ if (typeof module !== "undefined" && module.exports) {
     handleMessage,
     fetchRepoStatusByUrl,
     fetchGithubRepoStatus,
-    fetchGithubRepoStatusViaSupabase,
     fetchGithubRepoStatusViaCloudflare,
     fetchGithubRepoStatusNoPat,
     calculateRepoScore,
