@@ -1,72 +1,85 @@
 {
-    "manifest_version":  2,
-    "name":  "GitPulse",
-    "version": "2.0.2",
-    "description":  "A browser extension to show activity for repo links before you click them.",
-    "permissions":  [
-                        "storage",
-                        "https://api.github.com/*",
-                        "https://github.com/*",
-                        "https://gitpulse-status.davidkozdra.workers.dev/*",
-                        "https://codeberg.org/*",
-                        "https://gitlab.com/*",
-                        "https://api.bitbucket.org/*",
-                        "https://registry.npmjs.org/*",
-                        "https://hub.docker.com/*",
-                        "https://pypi.org/*",
-                        "https://crates.io/*",
-                        "https://packagist.org/*",
-                        "https://repo.packagist.org/*",
-                        "https://git.sr.ht/*",
-                        "https://api.launchpad.net/*"
-                    ],
-    "content_scripts":  [
-                            {
-                                "matches":  [
-                                                "\u003call_urls\u003e"
-                                            ],
-                                "js":  [
-                                           "src/compat.js",
-                                           "src/config.js",
-                                           "src/content/main.helpers.js",
-                                           "src/content/main.banner.js",
-                                           "src/content/main.links.js",
-                                           "src/content/main.detect.js",
-                                           "src/content/main.bootstrap.js",
-                                           "src/main.js"
-                                       ],
-                                "run_at":  "document_idle"
-                            }
-                        ],
-    "background":  {
-                       "scripts":  [
-                                       "src/background.js"
-                                   ]
-                   },
-    "browser_action":  {
-                           "default_popup":  "src/popup.html",
-                           "default_icon":  {
-                                                "16":  "src/icon.png",
-                                                "32":  "src/icon.png",
-                                                "48":  "src/icon.png",
-                                                "128":  "src/icon.png"
-                                            }
-                       },
-    "icons":  {
-                  "16":  "src/icon.png",
-                  "32":  "src/icon.png",
-                  "48":  "src/icon.png",
-                  "128":  "src/icon.png"
-              },
-    "web_accessible_resources": ["src/icon.png"],
-    "browser_specific_settings":  {
-                                      "gecko":  {
-                                                    "id":  "gitpulse@example.com",
-                                                    "strict_min_version":  "109.0",
-                                                    "data_collection_permissions":  {
-                                                                                    "required":  [ "websiteContent" ],
-                                                                                    "optional":  [ ]
-                                                                                }
-                                                }
-                                  }
+  "manifest_version": 3,
+  "name": "GitPulse",
+  "version": "2.0.2",
+  "description": "A browser extension to show activity for repo links before you click them.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gitpulse@example.com",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ],
+        "optional": []
+      }
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://gitpulse-status.davidkozdra.workers.dev/*",
+    "https://codeberg.org/*",
+    "https://gitlab.com/*",
+    "https://api.bitbucket.org/*",
+    "https://registry.npmjs.org/*",
+    "https://hub.docker.com/*",
+    "https://pypi.org/*",
+    "https://crates.io/*",
+    "https://packagist.org/*",
+    "https://repo.packagist.org/*",
+    "https://git.sr.ht/*",
+    "https://api.launchpad.net/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/compat.js",
+        "src/config.js",
+        "src/content/main.helpers.js",
+        "src/content/main.banner.js",
+        "src/content/main.links.js",
+        "src/content/main.detect.js",
+        "src/content/main.bootstrap.js",
+        "src/main.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": [
+      "src/background.js"
+    ]
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "src/icons/icon-16.png",
+      "32": "src/icons/icon-32.png",
+      "48": "src/icons/icon-48.png",
+      "128": "src/icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "src/icons/icon-16.png",
+    "32": "src/icons/icon-32.png",
+    "48": "src/icons/icon-48.png",
+    "128": "src/icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/icons/icon-128.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }
